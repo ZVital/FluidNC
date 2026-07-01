@@ -7,6 +7,7 @@
 #include "Channel.h"
 #include "Module.h"
 #include "SSD1306_I2C.h"
+#include "ST7567_SPI.h"
 
 typedef const uint8_t* font_t;
 
@@ -47,6 +48,28 @@ private:
     int32_t _report_interval_ms = 500;
 
     uint8_t _i2c_num = 0;
+
+    // SPI mode pins (for ST7567 / Mini 12864). -1 = not used / not connected.
+    int _spi_cs   = -1;
+    int _spi_dc   = -1;
+    int _spi_sck  = -1;
+    int _spi_mosi = -1;
+    int _spi_rst  = -1;
+
+    // PSB pin (Mini 12864 EXP1-7). Drive LOW for SPI mode, then press display RESET.
+    int _psb_pin = -1;
+
+    // Encoder pins (Mini 12864). -1 = not used.
+    int _en1_pin = -1;
+    int _en2_pin = -1;
+    int _enc_pin = -1;
+
+    uint8_t _enc_state       = 0;
+    int32_t _enc_pos         = 0;
+    bool    _enc_last_btn    = false;
+    uint8_t _enc_selected_axis = 0;  // 0=X, 1=Y, 2=Z
+    int32_t _jog_step_mm     = 1;
+    uint32_t _jog_last_ms    = 0;
 
     void parse_report();
     void parse_status_report();
@@ -126,5 +149,17 @@ public:
         handler.item("flip", _flip);
         handler.item("mirror", _mirror);
         handler.item("radio_delay_ms", _radio_delay);
+        // SPI pins for ST7567 (Mini 12864). When set, I2C is bypassed.
+        handler.item("spi_cs", _spi_cs);
+        handler.item("spi_dc", _spi_dc);
+        handler.item("spi_sck", _spi_sck);
+        handler.item("spi_mosi", _spi_mosi);
+        handler.item("spi_rst", _spi_rst, -1, 39);
+        handler.item("psb_pin", _psb_pin);
+        // Encoder pins for Mini 12864
+        handler.item("en1_pin", _en1_pin);
+        handler.item("en2_pin", _en2_pin);
+        handler.item("enc_pin", _enc_pin);
+        handler.item("jog_step_mm", _jog_step_mm, 1, 100);
     }
 };

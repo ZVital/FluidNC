@@ -24,6 +24,15 @@ OLED::Layout OLED::posLabelLayout   = { 60, 14, 128, ArialMT_Plain_10, TEXT_ALIG
 OLED::Layout OLED::radioAddrLayout  = { 50, 0, 128, ArialMT_Plain_10, TEXT_ALIGN_LEFT };
 
 void OLED::afterParse() {
+    bool use_spi = _spi_cs >= 0;
+    if (use_spi) {
+        // SPI mode (ST7567 / Mini 12864) — no I2C config needed
+        // Mini 12864 V3 is always 128x64
+        _width  = 128;
+        _height = 64;
+        _geometry = GEOMETRY_128_64;
+        return;
+    }
     if (!config->_i2c[_i2c_num]) {
         log_error("i2c" << _i2c_num << " section must be defined for OLED");
         _error = true;
@@ -68,9 +77,51 @@ void OLED::init() {
     if (_error) {
         return;
     }
-    log_info("OLED I2C address: " << to_hex(_address) << " width: " << _width << " height: " << _height);
-    _oled = new SSD1306_I2C(_address, _geometry, config->_i2c[_i2c_num], 400000);
-    _oled->init();
+    if (_spi_cs >= 0) {
+        // SPI mode — ST7567 (Mini 12864)
+        // OLEDDisplay::init() is NOT virtual — calling it through OLEDDisplay* would invoke
+        // the base class init which sends SSD1306 commands. Instead we allocate the buffer
+        // (public method) and initialize the display directly.
+
+        // Force PSB (mode select) LOW if a pin is configured
+        // On Mini 12864 V3, EXP1-7 = PSB. If PSB is HIGH, display is in 6800 parallel mode.
+        // We drive PSB LOW for SPI mode, then user must press RESET on the display
+        // while PSB is LOW so the mode is latched at hardware reset.
+        if (_psb_pin >= 0) {
+            pinMode(_psb_pin, OUTPUT);
+            digitalWrite(_psb_pin, LOW);
+            log_info("OLED PSB pin " << _psb_pin << " set LOW for SPI mode");
+        }
+
+        log_info("OLED SPI mode UC1701 cs:" << _spi_cs << " dc:" << _spi_dc << " rst:" << _spi_rst
+                 << " (HW SPI on shared bus)");
+        auto* st7567 = new ST7567_SPI(_spi_cs, _spi_dc, _spi_rst, _geometry);
+        _oled = st7567;
+        if (!_oled->allocateBuffer()) {
+            log_error("ST7567 buffer allocation failed");
+            _error = true;
+            return;
+        }
+
+        // First init attempt
+        st7567->hardwareReset();
+        st7567->uc1701Init();
+        _oled->clear();
+        _oled->display();
+
+        // Retry a couple times in case display needed more settling time
+        for (int retry = 0; retry < 3; retry++) {
+            delay(100);
+            st7567->uc1701Init();
+            _oled->clear();
+            _oled->display();
+        }
+    } else {
+        // I2C mode — SSD1306
+        log_info("OLED I2C address: " << to_hex(_address) << " width: " << _width << " height: " << _height);
+        _oled = new SSD1306_I2C(_address, _geometry, config->_i2c[_i2c_num], 400000);
+        _oled->init();
+    }
 
     if (_flip) {
         _oled->flipScreenVertically();
@@ -88,10 +139,57 @@ void OLED::init() {
 
     allChannels.registration(this);
     setReportInterval(_report_interval_ms);
+
+    // Encoder pins (Mini 12864)
+    if (_en1_pin >= 0) {
+        pinMode(_en1_pin, INPUT_PULLUP);
+        pinMode(_en2_pin, INPUT_PULLUP);
+        pinMode(_enc_pin, INPUT_PULLUP);
+        _enc_state = (digitalRead(_en1_pin) << 1) | digitalRead(_en2_pin);
+        log_info("Encoder enabled on pins en1:" << _en1_pin << " en2:" << _en2_pin << " btn:" << _enc_pin);
+    }
 }
 
 Error OLED::pollLine(char* line) {
     autoReport();
+
+    if (_en1_pin >= 0) {
+        // Rotary encoder state machine
+        // EN1 and EN2 are quadrature signals; lookup table maps
+        // (old_state << 2) | new_state to direction: -1=CCW, 0=noop, 1=CW
+        static const int8_t enc_table[16] = { 0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0 };
+        int en1 = digitalRead(_en1_pin);
+        int en2 = digitalRead(_en2_pin);
+        int new_state = (en1 << 1) | en2;
+        int8_t dir = enc_table[(_enc_state << 2) | new_state];
+        _enc_state = new_state;
+
+        if (dir != 0) {
+            _enc_pos += dir;
+        }
+
+        bool btn = !digitalRead(_enc_pin);  // Active low
+        if (btn && !_enc_last_btn) {
+            _enc_selected_axis = (_enc_selected_axis + 1) % 3;
+            log_info("Encoder axis " << _enc_selected_axis);
+        }
+        _enc_last_btn = btn;
+
+        // Send jog command when enough pulses accumulate
+        if (_enc_pos >= 2 || _enc_pos <= -2) {
+            uint32_t now = millis();
+            if (now - _jog_last_ms > 150) {
+                _jog_last_ms = now;
+                int steps = _enc_pos > 0 ? _jog_step_mm : -_jog_step_mm;
+                snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
+                         "XYZA"[_enc_selected_axis], steps);
+                _enc_pos = 0;
+                return Error::Ok;
+            }
+            _enc_pos = 0;
+        }
+    }
+
     return Error::NoData;
 }
 
