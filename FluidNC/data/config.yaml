@@ -1,23 +1,50 @@
-board: None
-name: Default (Test Drive no I/O)
+board: MKS TinyBee V1.0 XXYYZ
+name: LowRider 3
 meta: 
+
 stepping:
-  engine: RMT
+  engine: I2S_static
   idle_ms: 255
   pulse_us: 4
-  dir_delay_us: 0
-  disable_delay_us: 0
+  dir_delay_us: 1
+  disable_delay_us: 2
   segments: 12
 
+i2so:
+  bck_pin: gpio.25
+  data_pin: gpio.27
+  ws_pin: gpio.26
+
 spi:
-  miso_pin: NO_PIN
-  mosi_pin: NO_PIN
-  sck_pin: NO_PIN
+  miso_pin: gpio.19
+  mosi_pin: gpio.23
+  sck_pin: gpio.18
+
+oled:
+  spi_cs: 21
+  spi_dc: 4
+  spi_sck: 0
+  spi_mosi: 15
+  spi_rst: -1
+  psb_pin: 2
+  en1_pin: 14
+  en2_pin: 12
+  enc_pin: 13
+  jog_step_mm: 1
+  flip: false
+  mirror: false
 
 sdcard:
-  cs_pin: NO_PIN
-  card_detect_pin: NO_PIN
+  cs_pin: gpio.5
+  card_detect_pin: gpio.34:low
   frequency_hz: 8000000
+
+uart2:
+  txd_pin: gpio.17
+  rxd_pin: gpio.16
+  rts_pin: NO_PIN
+  baud: 115200
+  mode: 8N1
 
 kinematics:
   Cartesian:
@@ -25,48 +52,147 @@ kinematics:
 axes:
   shared_stepper_disable_pin: NO_PIN
   shared_stepper_reset_pin: NO_PIN
-  homing_runs: 2
+
   x:
-    steps_per_mm: 80.000000
-    max_rate_mm_per_min: 1000.000000
-    acceleration_mm_per_sec2: 25.000000
-    max_travel_mm: 1000.000000
+    steps_per_mm: 100.000000
+    max_rate_mm_per_min: 8000.000000
+    acceleration_mm_per_sec2: 80.000000
+    max_travel_mm: 850.000000
     soft_limits: false
+    homing:
+      cycle: 2
+      allow_single_axis: true
+      positive_direction: false
+      mpos_mm: 0.000000
+      feed_mm_per_min: 300.000000
+      seek_mm_per_min: 1000.000000
+      settle_ms: 500
+      seek_scaler: 1.100000
+      feed_scaler: 1.100000
+
     motor0:
-      limit_neg_pin: NO_PIN
+      limit_neg_pin: gpio.33:low:pu
       limit_pos_pin: NO_PIN
       limit_all_pin: NO_PIN
       hard_limits: false
-      pulloff_mm: 1.000000
-      null_motor:
+      pulloff_mm: 5.000000
+      tmc_2209:
+        uart_num: 2
+        addr: 0
+        r_sense_ohms: 0.110
+        run_amps: 1.200
+        hold_amps: 0.700
+        microsteps: 16
+        run_mode: StealthChop
+        step_pin: I2SO.1
+        direction_pin: I2SO.2
+        disable_pin: I2SO.0
 
   y:
-    steps_per_mm: 80.000000
-    max_rate_mm_per_min: 1000.000000
-    acceleration_mm_per_sec2: 25.000000
-    max_travel_mm: 1000.000000
+    steps_per_mm: 100.000000
+    max_rate_mm_per_min: 8000.000000
+    acceleration_mm_per_sec2: 70.000000
+    max_travel_mm: 1800.000000
     soft_limits: false
+    homing:
+      cycle: 2
+      allow_single_axis: true
+      positive_direction: true
+      mpos_mm: 0.000000
+      feed_mm_per_min: 300.000000
+      seek_mm_per_min: 1500.000000
+      settle_ms: 500
+      seek_scaler: 1.100000
+      feed_scaler: 1.100000
+
     motor0:
       limit_neg_pin: NO_PIN
-      limit_pos_pin: NO_PIN
+      limit_pos_pin: gpio.35:low
       limit_all_pin: NO_PIN
       hard_limits: false
-      pulloff_mm: 1.000000
-      null_motor:
+      pulloff_mm: 10.000000
+      tmc_2209:
+        uart_num: 2
+        addr: 1
+        r_sense_ohms: 0.110
+        run_amps: 1.200
+        hold_amps: 0.700
+        microsteps: 16
+        run_mode: StealthChop
+        step_pin: I2SO.4
+        direction_pin: I2SO.5
+        disable_pin: I2SO.3
+
+    motor1:
+      limit_neg_pin: NO_PIN
+      limit_pos_pin: gpio.32:low:pu
+      limit_all_pin: NO_PIN
+      hard_limits: false
+      pulloff_mm: 10.000000
+      tmc_2209:
+        uart_num: 2
+        addr: 3
+        r_sense_ohms: 0.110
+        run_amps: 1.200
+        hold_amps: 0.700
+        microsteps: 16
+        run_mode: StealthChop
+        step_pin: I2SO.10
+        direction_pin: I2SO.11
+        disable_pin: I2SO.9
 
   z:
-    steps_per_mm: 80.000000
-    max_rate_mm_per_min: 1000.000000
-    acceleration_mm_per_sec2: 25.000000
-    max_travel_mm: 1000.000000
+    steps_per_mm: 400.000000
+    max_rate_mm_per_min: 500.000000
+    acceleration_mm_per_sec2: 60.000000
+    max_travel_mm: 75.000000
     soft_limits: false
+    homing:
+      cycle: 2
+      allow_single_axis: true
+      positive_direction: true
+      mpos_mm: 70.000000
+      feed_mm_per_min: 50.000000
+      seek_mm_per_min: 200.000000
+      settle_ms: 500
+      seek_scaler: 1.100000
+      feed_scaler: 1.100000
+
     motor0:
       limit_neg_pin: NO_PIN
-      limit_pos_pin: NO_PIN
+      limit_pos_pin: gpio.22:low:pu
       limit_all_pin: NO_PIN
       hard_limits: false
-      pulloff_mm: 1.000000
-      null_motor:
+      pulloff_mm: 5.000000
+      tmc_2209:
+        uart_num: 2
+        addr: 2
+        r_sense_ohms: 0.110
+        run_amps: 1.200
+        hold_amps: 0.700
+        microsteps: 16
+        run_mode: StealthChop
+        step_pin: I2SO.7
+        direction_pin: I2SO.8:low
+        disable_pin: I2SO.6
+
+    motor1:
+      limit_neg_pin: NO_PIN
+      limit_pos_pin: gpio.36:low
+      limit_all_pin: NO_PIN
+      hard_limits: false
+      pulloff_mm: 2.400000
+      tmc_2209:
+        uart_num: 2
+        addr: 2
+        r_sense_ohms: 0.110
+        run_amps: 1.200
+        hold_amps: 0.700
+        microsteps: 16
+        run_mode: StealthChop
+        step_pin: I2SO.13
+        direction_pin: I2SO.14:low
+        disable_pin: I2SO.12
 
 control:
   safety_door_pin: NO_PIN
@@ -81,23 +207,22 @@ control:
   estop_pin: NO_PIN
 
 coolant:
-  flood_pin: NO_PIN
-  mist_pin: NO_PIN
+  flood_pin: I2SO.19
+  mist_pin: I2SO.20
   delay_ms: 0
 
 probe:
-  pin: NO_PIN
+  pin: gpio.39:low
   toolsetter_pin: NO_PIN
   check_mode_start: true
-  hard_stop: false
 
 macros:
-  startup_line0:
-  startup_line1:
-  Macro0:
-  Macro1:
-  Macro2:
-  Macro3:
+  startup_line0: M7
+  startup_line1: M8
+  macro0: $MD
+  macro1:
+  macro2:
+  macro3:
   after_homing:
   after_reset:
   after_unlock:
@@ -105,7 +230,7 @@ macros:
 start:
   must_home: false
   deactivate_parking: false
-  check_limits: true
+  check_limits: false
 
 parking:
   enable: false
@@ -133,23 +258,21 @@ user_outputs:
   digital6_pin: NO_PIN
   digital7_pin: NO_PIN
 
-user_inputs:
-  analog0_pin: NO_PIN
-  analog1_pin: NO_PIN
-  analog2_pin: NO_PIN
-  analog3_pin: NO_PIN
-  digital0_pin: NO_PIN
-  digital1_pin: NO_PIN
-  digital2_pin: NO_PIN
-  digital3_pin: NO_PIN
-  digital4_pin: NO_PIN
-  digital5_pin: NO_PIN
-  digital6_pin: NO_PIN
-  digital7_pin: NO_PIN
+NoSpindle:
+
+Laser:
+  pwm_hz: 5000
+  output_pin: gpio.2:pd
+  enable_pin: NO_PIN
+  disable_with_s0: false
+  s0_with_disable: true
+  tool_num: 1
+  speed_map: 0=0.00% 1000=100.00%
+  off_on_alarm: true
 
 arc_tolerance_mm: 0.002000
 junction_deviation_mm: 0.010000
-verbose_errors: true
+verbose_errors: false
 report_inches: false
 enable_parking_override_control: false
 use_line_numbers: false
