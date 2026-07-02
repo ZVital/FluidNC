@@ -23,20 +23,21 @@ spi:
 oled:
   spi_cs: 21
   spi_dc: 4
-  spi_sck: 0
-  spi_mosi: 15
-  spi_rst: -1
-  psb_pin: 2
+  spi_sck: 18
+  spi_mosi: 23
+  spi_rst: 0
+  psb_pin: 15
   en1_pin: 14
   en2_pin: 12
   enc_pin: 13
+  neo_pin: 16
+  buz_pin: I2SO.21
   jog_step_mm: 1
   flip: false
   mirror: false
 
 sdcard:
   cs_pin: gpio.5
-  card_detect_pin: gpio.34:low
   frequency_hz: 8000000
 
 uart2:

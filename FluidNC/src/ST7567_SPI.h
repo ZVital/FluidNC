@@ -29,4 +29,5 @@ public:
     // Called externally (since OLEDDisplay::init() is not virtual and sends SSD1306 commands)
     void hardwareReset();
     void uc1701Init();
+    void setContrast(uint8_t value);
 };

@@ -46,6 +46,7 @@ void SDCard::init() {
     } else {
         sd_init_slot(_frequency_hz, csPin);
     }
+    SD.prefix = "/sd";
 }
 
 void SDCard::afterParse() {

@@ -2,6 +2,12 @@
 #include "string_util.h"
 
 #include "Machine/MachineConfig.h"
+#include "Job.h"
+#include "InputFile.h"
+#include "Report.h"
+
+#include <WiFi.h>
+#include <driver/rmt.h>
 
 void OLED::show(Layout& layout, const char* msg) {
     if (_width < layout._width_required) {
@@ -14,7 +20,7 @@ void OLED::show(Layout& layout, const char* msg) {
 
 OLED::Layout OLED::bannerLayout128  = { 0, 0, 0, ArialMT_Plain_24, TEXT_ALIGN_CENTER };
 OLED::Layout OLED::bannerLayout64   = { 0, 0, 0, ArialMT_Plain_16, TEXT_ALIGN_CENTER };
-OLED::Layout OLED::stateLayout      = { 0, 0, 0, ArialMT_Plain_16, TEXT_ALIGN_LEFT };
+OLED::Layout OLED::stateLayout      = { 0, 0, 0, ArialMT_Plain_10, TEXT_ALIGN_LEFT };
 OLED::Layout OLED::tickerLayout     = { 63, 0, 128, ArialMT_Plain_10, TEXT_ALIGN_CENTER };
 OLED::Layout OLED::filenameLayout   = { 63, 13, 128, ArialMT_Plain_10, TEXT_ALIGN_CENTER };
 OLED::Layout OLED::percentLayout128 = { 128, 0, 128, ArialMT_Plain_16, TEXT_ALIGN_RIGHT };
@@ -140,56 +146,253 @@ void OLED::init() {
     allChannels.registration(this);
     setReportInterval(_report_interval_ms);
 
-    // Encoder pins (Mini 12864)
+    // Encoder pins (Mini 12864) — delegate to Menu debounced reader
     if (_en1_pin >= 0) {
-        pinMode(_en1_pin, INPUT_PULLUP);
-        pinMode(_en2_pin, INPUT_PULLUP);
-        pinMode(_enc_pin, INPUT_PULLUP);
-        _enc_state = (digitalRead(_en1_pin) << 1) | digitalRead(_en2_pin);
+        initEncoder(_en1_pin, _en2_pin, _enc_pin);
         log_info("Encoder enabled on pins en1:" << _en1_pin << " en2:" << _en2_pin << " btn:" << _enc_pin);
+    }
+    if (_buz_pin.defined()) {
+        _buz_pin.setAttr(Pin::Attr::Output);
+        _buz_pin.synchronousWrite(false);
+        log_info("Buzzer enabled on " << _buz_pin.name());
+    }
+    if (_neo_pin >= 0) {
+        // WS2812 via RMT — rust color for 3 LEDs
+        // 80MHz / 8 = 10MHz → 100ns per tick
+        rmt_config_t cfg = RMT_DEFAULT_CONFIG_TX((gpio_num_t)_neo_pin, RMT_CHANNEL_0);
+        cfg.clk_div = 8;
+        rmt_config(&cfg);
+        rmt_driver_install(RMT_CHANNEL_0, 0, 0);
+
+        // WS2812: 0=4H+9L, 1=8H+5L (100ns ticks)
+        // RGB: r=255=0xFF, g=80=0x50, b=15=0x0F
+        uint8_t data[9] = { 0xFF, 0x50, 0x0F,  0xFF, 0x50, 0x0F,  0xFF, 0x50, 0x0F };
+        rmt_item32_t bits[72];
+        int idx = 0;
+        for (int i = 0; i < 9; i++) {
+            for (int b = 7; b >= 0; b--) {
+                bits[idx++] = (data[i] & (1 << b))
+                    ? rmt_item32_t{ { 8, 1, 5, 0 } }
+                    : rmt_item32_t{ { 4, 1, 9, 0 } };
+            }
+        }
+        rmt_write_items(RMT_CHANNEL_0, bits, 72, true);
+        delayMicroseconds(300);
+        rmt_driver_uninstall(RMT_CHANNEL_0);
+        pinMode(_neo_pin, OUTPUT);
+        digitalWrite(_neo_pin, LOW);
+        log_info("RGB backlight set on pin " << _neo_pin);
+    }
+
+    // Set up info screen callback (field 0=IP, 1=WiFi, 2=Version)
+    static OLED* self = this;
+    infoText = [](int field) -> const char* {
+        switch (field) {
+            case 0:
+                if (self->_radio_addr.empty()) {
+                    IPAddress ip = WiFi.localIP();
+                    if (ip) {
+                        snprintf(self->_ip_buf, sizeof(self->_ip_buf), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+                        return self->_ip_buf;
+                    }
+                }
+                return self->_radio_addr.c_str();
+            case 1: return self->_radio_info.c_str();
+            case 2: return grbl_version;
+            default: return nullptr;
+        }
+    };
+
+    // Set up edit apply callback
+    editApplyCB = [](int value) {
+        if (editingItem == 0 && self->_spi_cs >= 0) {
+            self->_contrast = (uint8_t)value;
+            contrastValue = value;
+            auto* st7567 = static_cast<ST7567_SPI*>(self->_oled);
+            st7567->setContrast((uint8_t)value);
+        }
+    };
+
+    // Apply configured contrast to display and sync with menu
+    contrastValue = _contrast;
+    if (_spi_cs >= 0) {
+        auto* st7567 = static_cast<ST7567_SPI*>(_oled);
+        st7567->setContrast(_contrast);
     }
 }
 
 Error OLED::pollLine(char* line) {
     autoReport();
 
-    if (_en1_pin >= 0) {
-        // Rotary encoder state machine
-        // EN1 and EN2 are quadrature signals; lookup table maps
-        // (old_state << 2) | new_state to direction: -1=CCW, 0=noop, 1=CW
-        static const int8_t enc_table[16] = { 0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0 };
-        int en1 = digitalRead(_en1_pin);
-        int en2 = digitalRead(_en2_pin);
-        int new_state = (en1 << 1) | en2;
-        int8_t dir = enc_table[(_enc_state << 2) | new_state];
-        _enc_state = new_state;
-
-        if (dir != 0) {
-            _enc_pos += dir;
-        }
-
-        bool btn = !digitalRead(_enc_pin);  // Active low
-        if (btn && !_enc_last_btn) {
-            _enc_selected_axis = (_enc_selected_axis + 1) % 3;
-            log_info("Encoder axis " << _enc_selected_axis);
-        }
-        _enc_last_btn = btn;
-
-        // Send jog command when enough pulses accumulate
-        if (_enc_pos >= 2 || _enc_pos <= -2) {
-            uint32_t now = millis();
-            if (now - _jog_last_ms > 150) {
-                _jog_last_ms = now;
-                int steps = _enc_pos > 0 ? _jog_step_mm : -_jog_step_mm;
-                snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
-                         "XYZA"[_enc_selected_axis], steps);
-                _enc_pos = 0;
-                return Error::Ok;
-            }
-            _enc_pos = 0;
+    // If an SD file was selected from the menu, start it
+    if (sdFilePending) {
+        sdFilePending = false;
+        Job::save();
+        try {
+            InputFile* theFile = new InputFile(SD, sdSelectedFile);
+            Job::nest(theFile, this);
+        } catch (...) {
+            Job::restore();
         }
     }
 
+    // If probe gcode is pending (from Probe Z wizard), inject it
+    if (probeGcodePending) {
+        probeGcodePending = false;
+        strncpy(line, probeGcode, Channel::maxLine - 1);
+        line[Channel::maxLine - 1] = '\0';
+        return Error::Ok;
+    }
+
+    if (_en1_pin >= 0) {
+        pollEncoder();
+        BtnState btn = readButtonState();
+
+        if (btn == BtnState::LONG_PRESS) {
+            if (_state == "Alarm") {
+                // Reset alarm on long-press
+                strncpy(line, "$X\n", Channel::maxLine - 1);
+                line[Channel::maxLine - 1] = '\0';
+                return Error::Ok;
+            }
+            menuActive = !menuActive;
+            if (menuActive) {
+                goScreen(menu_main);
+                encoderLine    = 0;
+                encoderTopLine = 0;
+                _oled->clear();
+                drawMenu(_oled);
+                _oled->display();
+            } else {
+                goScreen(nullptr);
+                resetButtonState();
+                _needs_render = true;
+            }
+            return Error::NoData;
+        }
+
+        if (editActive && menuActive) {
+            if (btn == BtnState::SHORT_CLICK) {
+                menuEditStop();
+                _oled->clear();
+                drawMenu(_oled);
+                _oled->display();
+                return Error::NoData;
+            }
+            if (btn == BtnState::LONG_PRESS) {
+                editActive = false;
+                _oled->clear();
+                drawMenu(_oled);
+                _oled->display();
+                return Error::NoData;
+            }
+            int encDelta = readEncoderDelta();
+            if (encDelta != 0) {
+                int step = (encDelta > 0) ? editStep : -editStep;
+                editValue += step;
+                if (editValue < editMin) editValue = editMin;
+                if (editValue > editMax) editValue = editMax;
+                if (editApplyCB) editApplyCB(editValue);
+                _oled->clear();
+                drawMenu(_oled);
+                _oled->display();
+            }
+            return Error::NoData;
+        }
+
+        if (jogActive && menuActive) {
+            if (btn == BtnState::SHORT_CLICK) {
+                menuJogStop();
+                resetEncoder();
+                return Error::NoData;
+            }
+            if (btn == BtnState::LONG_PRESS) {
+                jogActive = false;
+                popScreen();
+                encoderLine = 0;
+                encoderTopLine = 0;
+                return Error::NoData;
+            }
+            int encDelta = readEncoderDelta();
+            if (encDelta >= 2 || encDelta <= -2) {
+                uint32_t now = millis();
+                if (now - _jog_last_ms > 150) {
+                    _jog_last_ms = now;
+                    int32_t steps = encDelta > 0 ? jogStepMm : -jogStepMm;
+                    snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
+                             "XYZ"[jogAxis], steps);
+                    return Error::Ok;
+                }
+            }
+            return Error::NoData;
+        }
+
+        if (menuActive) {
+            if (screen_items > 0) {
+                if (btn == BtnState::SHORT_CLICK) {
+                    const char* gcode = menuSelect();
+                    if (gcode && gcode[0] != '\0') {
+                        bool isHome = (gcode[0] == '$' && (gcode[1] == 'H' || gcode[1] == 'X'));
+                        if (isHome) {
+                            menuActive = false;
+                            goScreen(nullptr);
+                            resetButtonState();
+                            _needs_render = true;
+                        }
+                        strncpy(line, gcode, Channel::maxLine - 1);
+                        line[Channel::maxLine - 1] = '\0';
+                        return Error::Ok;
+                    }
+                    if (!menuActive) {
+                        // Exit item selected — menu closed, render DRO next pollLine
+                        _needs_render = true;
+                    } else if (screen_items > 0) {
+                        _oled->clear();
+                        drawMenu(_oled);
+                        _oled->display();
+                    }
+                }
+                int encDelta = readEncoderDelta();
+                if (encDelta != 0) {
+                    uint32_t now = millis();
+                    if (now - _menu_last_render > 200) {
+                        _menu_last_render = now;
+                        int step = (encDelta > 0) ? 1 : -1;
+                        encoderLine += step;
+                        if (encoderLine < 0)            encoderLine = screen_items - 1;
+                        if (encoderLine >= screen_items) encoderLine = 0;
+                        scroll_screen();
+                        _oled->clear();
+                        drawMenu(_oled);
+                        _oled->display();
+                    }
+                }
+            }
+            return Error::NoData;
+        }
+
+        if (btn == BtnState::SHORT_CLICK) {
+            if (_state != "Run") {
+                _enc_selected_axis = (_enc_selected_axis + 1) % 3;
+                _needs_render = true;
+            }
+        }
+        // Peek at encoder position without consuming — accumulate across calls
+        int encDelta = peekEncoderPos();
+        if (encDelta >= 2 || encDelta <= -2) {
+            resetEncoder();  // consume only when threshold met
+            uint32_t now = millis();
+            if (now - _jog_last_ms > 150) {
+                _jog_last_ms = now;
+                int steps = encDelta > 0 ? _jog_step_mm : -_jog_step_mm;
+                snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
+                         "XYZA"[_enc_selected_axis], steps);
+                return Error::Ok;
+            }
+        }
+    }
+
+    renderDRO();
     return Error::NoData;
 }
 
@@ -208,7 +411,7 @@ void OLED::show_limits(bool probe, const bool* limits) {
         return;
     }
     for (axis_t axis = X_AXIS; axis < 3; axis++) {
-        draw_checkbox(80, 27 + (axis * 10), 7, 7, limits[axis]);
+        draw_checkbox(80, 15 + (axis * 10), 7, 7, limits[axis]);
     }
 }
 void OLED::show_file() {
@@ -242,37 +445,40 @@ void OLED::show_dro(const float* axes, bool isMpos, bool* limits) {
         return;
     }
     if (_width == 128 && _filename.length()) {
-        // wide displays will show a progress bar instead of DROs
         return;
     }
 
     auto n_axis = Axes::_numberAxis;
-    char axisVal[20];
+    char buf[24];
 
-    show(limitLabelLayout, "L");
-    show(posLabelLayout, isMpos ? "M Pos" : "W Pos");
-
+    // Axis rows
     _oled->setFont(ArialMT_Plain_10);
-    uint8_t oled_y_pos;
-    for (axis_t axis = X_AXIS; axis < n_axis; axis++) {
-        oled_y_pos = ((_height == 64) ? 24 : 17) + (axis * 10);
+    for (axis_t axis = X_AXIS; axis < n_axis && axis < 3; axis++) {
+        uint8_t y = 12 + (axis * 10);
 
-        std::string axis_msg(Machine::Axes::axisName(axis));
-        if (_width == 128) {
-            axis_msg += ":";
-        } else {
-            // For small displays there isn't room for separate limit boxes
-            // so we put it after the label
-            axis_msg += limits[axis] ? "L" : ":";
+        if (axis == _enc_selected_axis && _width == 128) {
+            _oled->fillRect(0, y + 2, 54, 9);
+            _oled->setColor(BLACK);
         }
+
+        snprintf(buf, sizeof(buf), "%c:", Machine::Axes::axisName(axis)[0]);
         _oled->setTextAlignment(TEXT_ALIGN_LEFT);
-        _oled->drawString(0, oled_y_pos, axis_msg.c_str());
+        _oled->drawString(0, y, buf);
 
         _oled->setTextAlignment(TEXT_ALIGN_RIGHT);
-        snprintf(axisVal, 20 - 1, "%.3f", axes[axis]);
-        _oled->drawString((_width == 128) ? 60 : 63, oled_y_pos, axisVal);
+        snprintf(buf, sizeof(buf), "%.3f", axes[axis]);
+        _oled->drawString(55, y, buf);
+
+        if (axis == _enc_selected_axis && _width == 128) {
+            _oled->setColor(WHITE);
+        }
     }
-    _oled->display();
+
+    // Bottom line: feed rate + spindle speed
+    _oled->setFont(ArialMT_Plain_10);
+    _oled->setTextAlignment(TEXT_ALIGN_LEFT);
+    snprintf(buf, sizeof(buf), "F:%.0f S:%.0f", _feed_rate, _spindle_speed);
+    _oled->drawString(0, 54, buf);
 }
 
 void OLED::show_radio_info() {
@@ -374,6 +580,8 @@ void OLED::parse_status_report() {
             // feedrate,spindle_speed
             float fs[2];
             parse_numbers(value, fs, 2);  // feed in [0], spindle in [1]
+            _feed_rate     = fs[0];
+            _spindle_speed = fs[1];
             continue;
         }
         if (tag == "Pn") {
@@ -451,13 +659,42 @@ void OLED::parse_status_report() {
             continue;
         }
     }
-    _oled->clear();
-    show_state();
-    show_file();
-    show_limits(probe, limits);
-    show_dro(axes, isMpos, limits);
-    show_radio_info();
-    _oled->display();
+    if (menuActive) {
+        // Menu display is rendered from pollLine(), not here
+    } else {
+        _axes[0] = axes[0]; _axes[1] = axes[1]; _axes[2] = axes[2];
+        _limits[0] = limits[0]; _limits[1] = limits[1]; _limits[2] = limits[2];
+        _probe  = probe;
+        _isMpos = isMpos;
+        _needs_render = true;
+    }
+
+    // Alarm buzzer - beep continuously while in alarm state
+    if (_buz_pin.defined() && _state == "Alarm") {
+        static uint32_t lastBeep = 0;
+        static bool     beepOn   = false;
+        uint32_t now = millis();
+        if (now - lastBeep > 500) {
+            lastBeep = now;
+            beepOn   = !beepOn;
+            _buz_pin.synchronousWrite(beepOn);
+        }
+    } else if (_buz_pin.defined()) {
+        _buz_pin.synchronousWrite(false);
+    }
+}
+
+void OLED::renderDRO() {
+    if (_needs_render && !menuActive) {
+        _needs_render = false;
+        _oled->clear();
+        show_state();
+        show_file();
+        show_limits(_probe, _limits);
+        show_dro(_axes, _isMpos, _limits);
+        show_radio_info();
+        _oled->display();
+    }
 }
 
 void OLED::parse_gcode_report() {

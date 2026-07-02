@@ -124,6 +124,11 @@ void ST7567_SPI::uc1701Init() {
     delay(50);
 }
 
+void ST7567_SPI::setContrast(uint8_t value) {
+    writeCommand(0x81);
+    writeCommand(value);
+}
+
 void ST7567_SPI::display() {
     // 8 pages × 128 columns, each byte = 8 vertical pixels (bit0=top in buffer).
     // With 0xC8 (COM63→COM0 scan) and MSB-first SPI, no bit reversal needed.

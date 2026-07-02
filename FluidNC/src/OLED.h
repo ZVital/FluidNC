@@ -8,6 +8,7 @@
 #include "Module.h"
 #include "SSD1306_I2C.h"
 #include "ST7567_SPI.h"
+#include "Menu.h"
 
 typedef const uint8_t* font_t;
 
@@ -41,7 +42,14 @@ private:
     std::string _state;
     std::string _filename;
 
-    float       _percent;
+    float _percent;
+    float _feed_rate     = 0;
+    float _spindle_speed = 0;
+    char  _ip_buf[16]    = "";
+    float _axes[3] = { 0, 0, 0 };
+    bool  _limits[3] = { false, false, false };
+    bool  _probe  = false;
+    bool  _isMpos = false;
     std::string _ticker;
 
     int32_t _radio_delay        = 0;
@@ -63,13 +71,15 @@ private:
     int _en1_pin = -1;
     int _en2_pin = -1;
     int _enc_pin = -1;
+    int _neo_pin = -1;  // RGB backlight (Neopixel)
+    Pin _buz_pin;
 
-    uint8_t _enc_state       = 0;
-    int32_t _enc_pos         = 0;
-    bool    _enc_last_btn    = false;
     uint8_t _enc_selected_axis = 0;  // 0=X, 1=Y, 2=Z
-    int32_t _jog_step_mm     = 1;
-    uint32_t _jog_last_ms    = 0;
+    uint8_t _contrast = 43;
+  int32_t _jog_step_mm     = 1;
+  uint32_t _jog_last_ms    = 0;
+  uint32_t _menu_last_render = 0;
+  volatile bool _needs_render = false;
 
     void parse_report();
     void parse_status_report();
@@ -89,6 +99,7 @@ private:
     void show_dro(const float* axes, bool isMpos, bool* limits);
     void show_radio_info();
     void draw_checkbox(int16_t x, int16_t y, int16_t width, int16_t height, bool checked);
+    void renderDRO();
 
     void wrapped_draw_string(int16_t y, const std::string& s, font_t font);
 
@@ -160,6 +171,9 @@ public:
         handler.item("en1_pin", _en1_pin);
         handler.item("en2_pin", _en2_pin);
         handler.item("enc_pin", _enc_pin);
+        handler.item("neo_pin", _neo_pin);
+        handler.item("buz_pin", _buz_pin);
         handler.item("jog_step_mm", _jog_step_mm, 1, 100);
+        handler.item("contrast", _contrast, 30, 50);
     }
 };
