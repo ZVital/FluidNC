@@ -22,7 +22,9 @@ spi:
 
 oled:
   neo_color: "FF500F"
-  jog_step_mm: 1
+  jog_step_x: 10
+  jog_step_y: 10
+  jog_step_z: 1
   contrast: 43
   flip: false
   mirror: false

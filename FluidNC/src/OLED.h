@@ -73,7 +73,9 @@ private:
 
     uint8_t _enc_selected_axis = 0;  // 0=X, 1=Y, 2=Z
     uint8_t _contrast = 43;
-  int32_t _jog_step_mm     = 1;
+    int32_t _jog_step_x = 10;
+    int32_t _jog_step_y = 10;
+    int32_t _jog_step_z = 1;
   uint32_t _jog_last_ms    = 0;
   uint32_t _menu_last_render = 0;
   volatile bool _needs_render = false;
@@ -151,7 +153,9 @@ public:
     void group(Configuration::HandlerBase& handler) override {
         handler.item("report_interval_ms", _report_interval_ms, 100, 5000);
         handler.item("radio_delay_ms", _radio_delay);
-        handler.item("jog_step_mm", _jog_step_mm, 1, 100);
+        handler.item("jog_step_x", _jog_step_x, 1, 100);
+        handler.item("jog_step_y", _jog_step_y, 1, 100);
+        handler.item("jog_step_z", _jog_step_z, 1, 100);
         handler.item("contrast", _contrast, 30, 50);
         handler.item("neo_color", _neo_color);
         handler.item("flip", _flip);

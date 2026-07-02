@@ -330,7 +330,10 @@ Error OLED::pollLine(char* line) {
                 uint32_t now = millis();
                 if (now - _jog_last_ms > 150) {
                     _jog_last_ms = now;
-                    int32_t steps = encDelta > 0 ? jogStepMm : -jogStepMm;
+                    int32_t stepVal = _jog_step_x;
+                    if (jogAxis == 1) stepVal = _jog_step_y;
+                    if (jogAxis == 2) stepVal = _jog_step_z;
+                    int32_t steps = encDelta > 0 ? stepVal : -stepVal;
                     snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
                              "XYZ"[jogAxis], steps);
                     return Error::Ok;
@@ -392,13 +395,15 @@ Error OLED::pollLine(char* line) {
         // Peek at encoder position without consuming — accumulate across calls
         int encDelta = peekEncoderPos();
         if (encDelta >= 2 || encDelta <= -2) {
-            resetEncoder();  // consume only when threshold met
+            resetEncoder();
             uint32_t now = millis();
             if (now - _jog_last_ms > 150) {
                 _jog_last_ms = now;
-                int steps = encDelta > 0 ? _jog_step_mm : -_jog_step_mm;
+                int step = encDelta > 0 ? _jog_step_x : -_jog_step_x;
+                if (_enc_selected_axis == 1) step = encDelta > 0 ? _jog_step_y : -_jog_step_y;
+                if (_enc_selected_axis == 2) step = encDelta > 0 ? _jog_step_z : -_jog_step_z;
                 snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
-                         "XYZA"[_enc_selected_axis], steps);
+                         "XYZA"[_enc_selected_axis], step);
                 return Error::Ok;
             }
         }
