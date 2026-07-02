@@ -21,18 +21,9 @@ spi:
   sck_pin: gpio.18
 
 oled:
-  spi_cs: 21
-  spi_dc: 4
-  spi_sck: 18
-  spi_mosi: 23
-  spi_rst: 0
-  psb_pin: 15
-  en1_pin: 14
-  en2_pin: 12
-  enc_pin: 13
-  neo_pin: 16
-  buz_pin: I2SO.21
+  neo_color: "FF500F"
   jog_step_mm: 1
+  contrast: 43
   flip: false
   mirror: false
 

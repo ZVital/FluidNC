@@ -157,16 +157,28 @@ void OLED::init() {
         log_info("Buzzer enabled on " << _buz_pin.name());
     }
     if (_neo_pin >= 0) {
-        // WS2812 via RMT — rust color for 3 LEDs
-        // 80MHz / 8 = 10MHz → 100ns per tick
+        // Parse RGB from hex string "RRGGBB"
+        uint8_t rgb[3] = { 0xFF, 0x50, 0x0F };
+        if (_neo_color.length() >= 6) {
+            auto hex = [](char c) -> uint8_t {
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                return 0;
+            };
+            rgb[0] = hex(_neo_color[0]) * 16 + hex(_neo_color[1]);
+            rgb[1] = hex(_neo_color[2]) * 16 + hex(_neo_color[3]);
+            rgb[2] = hex(_neo_color[4]) * 16 + hex(_neo_color[5]);
+        }
+
+        // WS2812 via RMT — 10MHz → 100ns/tick, 3 LEDs
         rmt_config_t cfg = RMT_DEFAULT_CONFIG_TX((gpio_num_t)_neo_pin, RMT_CHANNEL_0);
         cfg.clk_div = 8;
         rmt_config(&cfg);
         rmt_driver_install(RMT_CHANNEL_0, 0, 0);
 
-        // WS2812: 0=4H+9L, 1=8H+5L (100ns ticks)
-        // RGB: r=255=0xFF, g=80=0x50, b=15=0x0F
-        uint8_t data[9] = { 0xFF, 0x50, 0x0F,  0xFF, 0x50, 0x0F,  0xFF, 0x50, 0x0F };
+        uint8_t data[9];
+        for (int i = 0; i < 3; i++) { data[i*3] = rgb[0]; data[i*3+1] = rgb[1]; data[i*3+2] = rgb[2]; }
         rmt_item32_t bits[72];
         int idx = 0;
         for (int i = 0; i < 9; i++) {
@@ -181,7 +193,7 @@ void OLED::init() {
         rmt_driver_uninstall(RMT_CHANNEL_0);
         pinMode(_neo_pin, OUTPUT);
         digitalWrite(_neo_pin, LOW);
-        log_info("RGB backlight set on pin " << _neo_pin);
+        log_info("RGB backlight " << _neo_color << " on pin " << _neo_pin);
     }
 
     // Set up info screen callback (field 0=IP, 1=WiFi, 2=Version)

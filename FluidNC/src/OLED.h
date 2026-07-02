@@ -57,21 +57,18 @@ private:
 
     uint8_t _i2c_num = 0;
 
-    // SPI mode pins (for ST7567 / Mini 12864). -1 = not used / not connected.
-    int _spi_cs   = -1;
-    int _spi_dc   = -1;
-    int _spi_sck  = -1;
-    int _spi_mosi = -1;
-    int _spi_rst  = -1;
-
-    // PSB pin (Mini 12864 EXP1-7). Drive LOW for SPI mode, then press display RESET.
-    int _psb_pin = -1;
-
-    // Encoder pins (Mini 12864). -1 = not used.
-    int _en1_pin = -1;
-    int _en2_pin = -1;
-    int _enc_pin = -1;
-    int _neo_pin = -1;  // RGB backlight (Neopixel)
+    // SPI mode pins (ST7567 / Mini 12864 V3 on MKS TinyBee V1.0)
+    int _spi_cs   = 21;
+    int _spi_dc   = 4;
+    int _spi_sck  = 18;
+    int _spi_mosi = 23;
+    int _spi_rst  = 0;
+    int _psb_pin  = 15;
+    int _en1_pin  = 14;
+    int _en2_pin  = 12;
+    int _enc_pin  = 13;
+    int _neo_pin  = 16;
+    std::string _neo_color = "FF500F";  // default rust
     Pin _buz_pin;
 
     uint8_t _enc_selected_axis = 0;  // 0=X, 1=Y, 2=Z
@@ -153,27 +150,11 @@ public:
 
     void group(Configuration::HandlerBase& handler) override {
         handler.item("report_interval_ms", _report_interval_ms, 100, 5000);
-        handler.item("i2c_num", _i2c_num);
-        handler.item("i2c_address", _address);
-        handler.item("width", _width);
-        handler.item("height", _height);
-        handler.item("flip", _flip);
-        handler.item("mirror", _mirror);
         handler.item("radio_delay_ms", _radio_delay);
-        // SPI pins for ST7567 (Mini 12864). When set, I2C is bypassed.
-        handler.item("spi_cs", _spi_cs);
-        handler.item("spi_dc", _spi_dc);
-        handler.item("spi_sck", _spi_sck);
-        handler.item("spi_mosi", _spi_mosi);
-        handler.item("spi_rst", _spi_rst, -1, 39);
-        handler.item("psb_pin", _psb_pin);
-        // Encoder pins for Mini 12864
-        handler.item("en1_pin", _en1_pin);
-        handler.item("en2_pin", _en2_pin);
-        handler.item("enc_pin", _enc_pin);
-        handler.item("neo_pin", _neo_pin);
-        handler.item("buz_pin", _buz_pin);
         handler.item("jog_step_mm", _jog_step_mm, 1, 100);
         handler.item("contrast", _contrast, 30, 50);
+        handler.item("neo_color", _neo_color);
+        handler.item("flip", _flip);
+        handler.item("mirror", _mirror);
     }
 };
