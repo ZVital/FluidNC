@@ -334,9 +334,12 @@ Error OLED::pollLine(char* line) {
                     if (jogAxis == 1) stepVal = _jog_step_y;
                     if (jogAxis == 2) stepVal = _jog_step_z;
                     int32_t steps = encDelta > 0 ? stepVal : -stepVal;
-                    snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
-                             "XYZ"[jogAxis], steps);
-                    return Error::Ok;
+                    uint8_t axisIdx = (jogAxis < 0 || jogAxis > 2) ? 0 : jogAxis;
+                    if (line) {
+                        snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
+                                 "XYZ"[axisIdx], steps);
+                        return Error::Ok;
+                    }
                 }
             }
             return Error::NoData;
@@ -393,18 +396,24 @@ Error OLED::pollLine(char* line) {
             }
         }
         // Peek at encoder position without consuming — accumulate across calls
-        int encDelta = peekEncoderPos();
-        if (encDelta >= 2 || encDelta <= -2) {
-            resetEncoder();
-            uint32_t now = millis();
-            if (now - _jog_last_ms > 150) {
-                _jog_last_ms = now;
-                int step = encDelta > 0 ? _jog_step_x : -_jog_step_x;
-                if (_enc_selected_axis == 1) step = encDelta > 0 ? _jog_step_y : -_jog_step_y;
-                if (_enc_selected_axis == 2) step = encDelta > 0 ? _jog_step_z : -_jog_step_z;
-                snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
-                         "XYZA"[_enc_selected_axis], step);
-                return Error::Ok;
+        {
+            int encDelta = peekEncoderPos();
+            if (encDelta >= 2 || encDelta <= -2) {
+                resetEncoder();
+                uint32_t now = millis();
+                if (now - _jog_last_ms > 150) {
+                    _jog_last_ms = now;
+                    int step = encDelta > 0 ? _jog_step_x : -_jog_step_x;
+                    if (_enc_selected_axis == 1) step = encDelta > 0 ? _jog_step_y : -_jog_step_y;
+                    if (_enc_selected_axis == 2) step = encDelta > 0 ? _jog_step_z : -_jog_step_z;
+                    uint8_t axisIdx = _enc_selected_axis;
+                    if (axisIdx > 3) axisIdx = 0;
+                    if (line) {
+                        snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
+                                 "XYZA"[axisIdx], step);
+                        return Error::Ok;
+                    }
+                }
             }
         }
     }
