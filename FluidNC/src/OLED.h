@@ -78,6 +78,7 @@ private:
     int32_t _jog_step_z = 1;
   uint32_t _jog_last_ms    = 0;
   uint32_t _menu_last_render = 0;
+  uint32_t _last_dro_ms    = 0;
   volatile bool _needs_render = false;
 
     void parse_report();

@@ -712,6 +712,11 @@ void OLED::parse_status_report() {
 
 void OLED::renderDRO() {
     if (_needs_render && !menuActive) {
+        uint32_t now = millis();
+        if (now - _last_dro_ms < 100) {
+            return;  // throttle DRO redraw to ~10 Hz to avoid SPI bus contention
+        }
+        _last_dro_ms = now;
         _needs_render = false;
         _oled->clear();
         show_state();

@@ -132,13 +132,18 @@ void ST7567_SPI::setContrast(uint8_t value) {
 void ST7567_SPI::display() {
     // 8 pages × 128 columns, each byte = 8 vertical pixels (bit0=top in buffer).
     // With 0xC8 (COM63→COM0 scan) and MSB-first SPI, no bit reversal needed.
+    // Combine the 3 address-set commands into one bulk write per page to halve
+    // SPI transaction count (less bus-lock time, better SD-card sharing).
+    uint8_t cmd[3];
     for (int page = 0; page < 8; page++) {
-        writeCommand(0xB0 | page);
-        writeCommand(0x10);
-        writeCommand(0x00);
+        cmd[0] = 0xB0 | page;
+        cmd[1] = 0x10;
+        cmd[2] = 0x00;
 
-        digitalWrite(_dc_pin, HIGH);
+        digitalWrite(_dc_pin, LOW);
         digitalWrite(_cs_pin, LOW);
+        spiWriteBulk(cmd, 3);
+        digitalWrite(_dc_pin, HIGH);
         spiWriteBulk(&buffer[page * 128], 128);
         digitalWrite(_cs_pin, HIGH);
     }
