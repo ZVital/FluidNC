@@ -346,6 +346,9 @@ Error OLED::pollLine(char* line) {
             if (btn == BtnState::SHORT_CLICK) {
                 menuJogStop();
                 resetEncoder();
+                _oled->clear();
+                drawMenu(_oled);
+                _oled->display();
                 return Error::NoData;
             }
             // Accumulate encoder counts across the rate-limit window instead

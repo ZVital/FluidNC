@@ -5,6 +5,7 @@
 #include "Protocol.h"
 #include "MotionControl.h"
 #include "FluidPath.h"
+#include "Machine/MachineConfig.h"
 
 #include <algorithm>
 #include <vector>
@@ -142,6 +143,8 @@ void menuEditStop() {
 // ---- State-change dispatcher (fed from OLED::pollLine) ----
 static char prev_state[16] = "";
 
+void menu_probe(OLEDDisplay* display);
+
 void menuNotifyState(const char* state) {
     char cur[16];
     if (!state) state = "";
@@ -153,9 +156,20 @@ void menuNotifyState(const char* state) {
     }
 
     // Dispatch slots — filled by later batches:
-    //   TODO(probe-wizard): advance/cancel probeStep on state transitions
     //   TODO(sd-watchdog): react to SD mount/unmount
     //   TODO(homing-beep): short beep on Homing -> Idle
+
+    if (probeStep == ProbeStep::PROBING) {
+        if (strcmp(cur, "Alarm") == 0) {
+            probeStep = ProbeStep::FAILED;          // covers soft-limit reject too (Idle->Alarm)
+        } else if (strcmp(prev_state, "Run") == 0 && strcmp(cur, "Idle") == 0) {
+            if (currentScreen() == menu_probe) {
+                probeFinishProbing();               // zero Z at contact, advance wizard
+            } else {
+                probeStep = ProbeStep::IDLE;        // wizard abandoned mid-probe: no surprise G92
+            }
+        }
+    }
 
     strncpy(prev_state, cur, sizeof(prev_state) - 1);
     prev_state[sizeof(prev_state) - 1] = '\0';
@@ -488,6 +502,20 @@ void menu_jog(OLEDDisplay* display) {
     currentMenuItems = items;
     scroll_screen();
     drawItemList(display, "Jog");
+
+    if (jogActive) {
+        int idx = jogAxis + 1;  // items: 0="< Back", 1=X, 2=Y, 3=Z
+        if (idx >= encoderTopLine && idx < encoderTopLine + 5) {
+            int row = idx - encoderTopLine + 1;
+            int y   = 10 + (row - 1) * 10;
+            display->fillRect(0, y, 128, 10);
+            display->setColor(BLACK);
+            display->setFont(ArialMT_Plain_10);
+            display->setTextAlignment(TEXT_ALIGN_LEFT);
+            display->drawString(2, y, currentMenuItems[idx].label);
+            display->setColor(WHITE);
+        }
+    }
 }
 
 void menu_probe(OLEDDisplay* display) {
@@ -507,8 +535,8 @@ void menu_probe(OLEDDisplay* display) {
             stepAction = probeStart;
             break;
         case ProbeStep::PROBING:
-            snprintf(msg, sizeof(msg), "Probing... click when stopped");
-            stepAction = probeFinishProbing;
+            snprintf(msg, sizeof(msg), "Probing...");
+            stepAction = nullptr;
             break;
         case ProbeStep::REMOVE:
             snprintf(msg, sizeof(msg), "Z=0 set. Remove plate, click");
@@ -637,7 +665,8 @@ void menu_spindle(OLEDDisplay* display) {
     static char speedBuf[24];
     static char startGcode[24];
     snprintf(speedBuf, sizeof(speedBuf), "Speed: %d%%", spindleSpeed);
-    snprintf(startGcode, sizeof(startGcode), "M3 S%d\n", spindleSpeed * 10);
+    uint32_t maxSpindle = spindle ? spindle->maxSpeed() : 1000;
+    snprintf(startGcode, sizeof(startGcode), "M3 S%d\n", (int)(spindleSpeed * maxSpindle / 100));
 
     static const MenuItem items[] = {
         { "< Back",       (void(*)())popScreen,            nullptr,    true  },
