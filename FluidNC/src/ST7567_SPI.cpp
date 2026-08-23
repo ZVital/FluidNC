@@ -91,12 +91,15 @@ void ST7567_SPI::writeData(uint8_t data) {
 }
 
 void ST7567_SPI::writeCmdSequence(const uint8_t* cmds, int count) {
+    if (!_spi_handle) return;
+    spi_device_acquire_bus(_spi_handle, portMAX_DELAY);
     digitalWrite(_dc_pin, LOW);
     digitalWrite(_cs_pin, LOW);
     for (int i = 0; i < count; i++) {
         spiWriteByte(cmds[i]);
     }
     digitalWrite(_cs_pin, HIGH);
+    spi_device_release_bus(_spi_handle);
 }
 
 void ST7567_SPI::uc1701Init() {
@@ -125,15 +128,22 @@ void ST7567_SPI::uc1701Init() {
 }
 
 void ST7567_SPI::setContrast(uint8_t value) {
+    if (!_spi_handle) return;
+    spi_device_acquire_bus(_spi_handle, portMAX_DELAY);
     writeCommand(0x81);
     writeCommand(value);
+    spi_device_release_bus(_spi_handle);
 }
 
 void ST7567_SPI::display() {
+    if (!_spi_handle) return;
     // 8 pages × 128 columns, each byte = 8 vertical pixels (bit0=top in buffer).
     // With 0xC8 (COM63→COM0 scan) and MSB-first SPI, no bit reversal needed.
-    // Combine the 3 address-set commands into one bulk write per page to halve
-    // SPI transaction count (less bus-lock time, better SD-card sharing).
+    // Hold the SPI bus for the whole frame: CS is manual (spics_io_num=-1), so
+    // between per-page transactions another device (SD card on this shared bus)
+    // could grab the bus and its data would land in display RAM while our CS
+    // is still asserted. acquire_bus keeps the bus locked until release.
+    spi_device_acquire_bus(_spi_handle, portMAX_DELAY);
     uint8_t cmd[3];
     for (int page = 0; page < 8; page++) {
         cmd[0] = 0xB0 | page;
@@ -147,4 +157,5 @@ void ST7567_SPI::display() {
         spiWriteBulk(&buffer[page * 128], 128);
         digitalWrite(_cs_pin, HIGH);
     }
+    spi_device_release_bus(_spi_handle);
 }
