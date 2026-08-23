@@ -73,6 +73,7 @@ private:
     int32_t _neo_pin  = -1;
     std::string _neo_color = "FF500F";  // default rust
     Pin _buz_pin;
+    volatile uint32_t _beepUntilMs = 0;  // click-beep deadline; parse_status_report may read cross-task
 
     uint8_t _enc_selected_axis = 0;  // 0=X, 1=Y, 2=Z
     uint8_t _contrast = 43;
@@ -141,6 +142,8 @@ public:
     size_t write(uint8_t data) override;
 
     bool idle() const { return _state == "Idle"; }
+
+    void menuBeep(uint16_t ms);  // non-blocking click beep; extinguished by deadline checks in pollLine/parse_status_report
 
     int read(void) override { return -1; }
     int peek(void) override { return -1; }

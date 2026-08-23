@@ -53,6 +53,10 @@ const char* menuSelect();       // Returns gcode to inject (or nullptr) for curr
 void menuJogStop();             // Deactivate jog mode, cancel queued jogs, return to jog submenu
 void menuEditStop();            // Deactivate edit mode, apply value
 
+// Called from pollLine() on every status report — dispatches on state
+// transitions (probe wizard, SD watchdog, homing beep)
+void menuNotifyState(const char* state);
+
 // True while the machine state reported to the OLED is Idle (safe to start a jog)
 bool machineIdle();
 

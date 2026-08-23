@@ -255,8 +255,21 @@ OLED::~OLED() {
     }
 }
 
+void OLED::menuBeep(uint16_t ms) {
+    if (!_buz_pin.defined() || _state == "Alarm") return;
+    _beepUntilMs = millis() + ms;          // deadline BEFORE raising the pin
+    _buz_pin.synchronousWrite(true);
+}
+
 Error OLED::pollLine(char* line) {
+    menuNotifyState(_state.c_str());
     autoReport();
+
+    // Click-beep deadline check (non-blocking extinguish)
+    if (_beepUntilMs && millis() > _beepUntilMs) {
+        _beepUntilMs = 0;
+        _buz_pin.synchronousWrite(false);
+    }
 
     // One queued command per call (probe wizard steps, etc.)
     char queued[Channel::maxLine];
@@ -713,7 +726,7 @@ void OLED::parse_status_report() {
             beepOn   = !beepOn;
             _buz_pin.synchronousWrite(beepOn);
         }
-    } else if (_buz_pin.defined()) {
+    } else if (_buz_pin.defined() && millis() > _beepUntilMs) {
         _buz_pin.synchronousWrite(false);
     }
 }

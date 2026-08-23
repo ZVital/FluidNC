@@ -140,6 +140,28 @@ void menuEditStop() {
     editActive = false;
 }
 
+// ---- State-change dispatcher (fed from OLED::pollLine) ----
+static char prev_state[16] = "";
+
+void menuNotifyState(const char* state) {
+    char cur[16];
+    if (!state) state = "";
+    strncpy(cur, state, sizeof(cur) - 1);
+    cur[sizeof(cur) - 1] = '\0';
+
+    if (strcmp(cur, prev_state) == 0) {
+        return;
+    }
+
+    // Dispatch slots — filled by later batches:
+    //   TODO(probe-wizard): advance/cancel probeStep on state transitions
+    //   TODO(sd-watchdog): react to SD mount/unmount
+    //   TODO(homing-beep): short beep on Homing -> Idle
+
+    strncpy(prev_state, cur, sizeof(prev_state) - 1);
+    prev_state[sizeof(prev_state) - 1] = '\0';
+}
+
 const char* menuSelect() {
     _pendingGcode[0] = '\0';
 
