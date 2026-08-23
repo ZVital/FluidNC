@@ -7,6 +7,8 @@
 #include <WiFi.h>
 #include <driver/rmt.h>
 
+static int s_jogFastStreak = 99;  // consecutive fast detents; starts high so very first click is x1
+
 void OLED::show(Layout& layout, const char* msg) {
     if (_width < layout._width_required) {
         return;
@@ -363,12 +365,17 @@ Error OLED::pollLine(char* line) {
             if (det != 0) {
                 uint32_t now = millis();
                 if (now - _jog_last_ms >= 60) {
-                    uint32_t delta   = now - _jog_last_ms;
-                    int      mult     = (delta <= 100) ? 4 : (delta <= 200) ? 2 : 1;
+                    uint32_t delta = now - _jog_last_ms;
+                    if (delta <= 220) {
+                        s_jogFastStreak++;
+                    } else {
+                        s_jogFastStreak = 0;
+                    }
+                    int mult = (s_jogFastStreak >= 5) ? 4 : (s_jogFastStreak >= 2) ? 2 : 1;
                     consumeEncoderDetents(det);
                     _jog_last_ms = now;
                     uint8_t axisIdx = (jogAxis < 0 || jogAxis > 2) ? 0 : jogAxis;
-                    int32_t stepVal = g_jogStepMM[axisIdx] * mult;
+                    int32_t stepVal = g_jogStepMM[axisIdx] * det * mult;
                     int32_t steps = det > 0 ? stepVal : -stepVal;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
@@ -437,12 +444,17 @@ Error OLED::pollLine(char* line) {
             if (det != 0) {
                 uint32_t now = millis();
                 if (now - _jog_last_ms >= 60) {
-                    uint32_t delta   = now - _jog_last_ms;
-                    int      mult     = (delta <= 100) ? 4 : (delta <= 200) ? 2 : 1;
+                    uint32_t delta = now - _jog_last_ms;
+                    if (delta <= 220) {
+                        s_jogFastStreak++;
+                    } else {
+                        s_jogFastStreak = 0;
+                    }
+                    int mult = (s_jogFastStreak >= 5) ? 4 : (s_jogFastStreak >= 2) ? 2 : 1;
                     consumeEncoderDetents(det);
                     _jog_last_ms = now;
                     uint8_t axisIdx = _enc_selected_axis < 3 ? _enc_selected_axis : 0;
-                    int32_t stepVal = g_jogStepMM[axisIdx] * mult;
+                    int32_t stepVal = g_jogStepMM[axisIdx] * det * mult;
                     int32_t step = det > 0 ? stepVal : -stepVal;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
