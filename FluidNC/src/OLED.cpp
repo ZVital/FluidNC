@@ -336,10 +336,10 @@ Error OLED::pollLine(char* line) {
                 _oled->display();
                 return Error::NoData;
             }
-            int encDelta = readEncoderDelta();
-            if (encDelta != 0) {
-                int step = (encDelta > 0) ? editStep : -editStep;
-                editValue += step;
+            int det = encoderDetents();
+            if (det != 0) {
+                consumeEncoderDetents(det);
+                editValue += det * editStep;
                 if (editValue < editMin) editValue = editMin;
                 if (editValue > editMax) editValue = editMax;
                 if (editApplyCB) editApplyCB(editValue);

@@ -289,6 +289,8 @@ static int      _en2Pin    = -1;
 static int      _encPin    = -1;
 static uint8_t  _encState  = 0;
 static int32_t  _encPos    = 0;
+static int8_t   subDetent  = 0;
+constexpr int ENC_COUNTS_PER_DETENT = 4;
 static uint32_t _encLastUs = 0;
 static uint32_t _btnLockUntil  = 0;
 static const uint32_t BTN_ENCODER_MUTE_MS = 150;
@@ -322,7 +324,16 @@ void pollEncoder() {
         if (now - _encLastUs >= ENCODER_DEBOUNCE_US) {
             int8_t dir = _encTable[(_encState << 2) | newState];
             if (dir != 0) {
-                _encPos -= dir;  // inverted: CW = +, CCW = -
+                int8_t step = -dir;  // keep existing convention: CW = +
+                if (subDetent * step <= 0) {
+                    subDetent = step;               // direction reversed: drop stale partial detent
+                } else {
+                    subDetent += step;
+                }
+                if (subDetent >= ENC_COUNTS_PER_DETENT || subDetent <= -ENC_COUNTS_PER_DETENT) {
+                    _encPos += step;                // one WHOLE detent delivered
+                    subDetent                       = 0;
+                }
             }
             _encState  = newState;
             _encLastUs = now;
@@ -346,14 +357,12 @@ void resetEncoder() { _encPos = 0; }
 
 int peekEncoderPos() { return _encPos; }
 
-constexpr int ENC_COUNTS_PER_DETENT = 4;
-
 int encoderDetents() {
-    return _encPos / ENC_COUNTS_PER_DETENT;
+    return _encPos;  // unit = one whole detent (pollEncoder emits 1 per detent)
 }
 
 void consumeEncoderDetents(int n) {
-    _encPos -= n * ENC_COUNTS_PER_DETENT;
+    _encPos -= n;
 }
 
 int encoderPin1()   { return _en1Pin; }
@@ -361,19 +370,24 @@ int encoderPin2()   { return _en2Pin; }
 int encoderBtnPin() { return _encPin; }
 
 // ---- Button state machine ----
-static const uint32_t BTN_DEBOUNCE_MS = 5;
+static const uint32_t BTN_DEBOUNCE_MS = 25;
 
 static uint32_t _btnDebounceMs = 0;
 static bool     _btnDebouncing = false;
 static bool     _btnWasDown    = false;
 static bool     _btnConsumed   = false;
 static uint32_t _btnPressMs    = 0;
+static uint32_t btnIgnoreUntil = 0;
 
 BtnState readButtonState() {
     if (_encPin < 0) return BtnState::IDLE;
 
-    bool btnDown = !digitalRead(_encPin);
     uint32_t now = millis();
+    if (now < btnIgnoreUntil) {
+        return BtnState::IDLE;  // release-bounce / phantom suppression after an emitted event
+    }
+
+    bool btnDown = !digitalRead(_encPin);
 
     if (btnDown && !_btnWasDown && !_btnDebouncing) {
         _btnDebounceMs = now;
@@ -399,15 +413,17 @@ BtnState readButtonState() {
 
     if (btnDown && _btnWasDown && !_btnConsumed) {
         if (now - _btnPressMs >= LONG_PRESS_MS) {
-            _btnConsumed = true;
+            _btnConsumed    = true;
+            btnIgnoreUntil  = now + 250;
             return BtnState::LONG_PRESS;
         }
     }
 
     if (!btnDown && _btnWasDown) {
-        _btnWasDown = false;
+        _btnWasDown   = false;
         _btnLockUntil = millis() + BTN_ENCODER_MUTE_MS;
         if (!_btnConsumed) {
+            btnIgnoreUntil = now + 250;
             return BtnState::SHORT_CLICK;
         }
     }
