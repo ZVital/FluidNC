@@ -21,14 +21,23 @@ spi:
   sck_pin: gpio.18
 
 oled:
-  # Пины дисплея настраиваются (по умолчанию: spi_cs=21, dc=4, rst=0,
-  # psb=15, en1=14, en2=12, enc_btn=13) — ключи spi_cs_pin / spi_dc_pin /
-  # spi_rst_pin / psb_pin / en1_pin / en2_pin / enc_btn_pin.
-  # RGB-подсветка ВЫКЛЮЧЕНА по умолчанию. НЕ назначайте её на gpio.16:
-  # это uart2 rxd (TMC2209); OLED зажимает neo-пин в LOW после старта,
-  # и все пост-загрузочные чтения TMC ($MI и т.п.) ломаются. Для
-  # включения нужен отдельный провод на свободный пин, например:
-  #   neo_pin: 25
+  # Пины дисплея — числа (не gpio.N): это сырые номера GPIO.
+  # Маппинг MKS Mini12864 V3 -> TinyBee: CS=EXP1-8(21), DC/A0=EXP1-7(4),
+  # RST=EXP1-6(0), PSB=EXP1-4(15); энкодер EN1=14(EXP2), EN2=12(EXP2),
+  # кнопка=13(EXP1).
+  spi_cs_pin: 21
+  spi_dc_pin: 4
+  spi_rst_pin: 0
+  psb_pin: 15
+  en1_pin: 14
+  en2_pin: 12
+  enc_btn_pin: 13
+  # RGB-подсветка выключена. Свободных пинов на плате нет: BL дисплея
+  # разведён на gpio.16 (EXP1-5), но этот пад занят uart2 rxd (TMC2209) —
+  # при включении neo OLED зажмёт его в LOW и поломает пост-загрузочные
+  # чтения TMC ($MI). Включать ТОЛЬКО после переноса RX с gpio.16
+  # (см. README п.8).
+  # neo_pin: 16
   neo_color: "FF500F"
   jog_step_x: 10
   jog_step_y: 10

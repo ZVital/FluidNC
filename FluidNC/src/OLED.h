@@ -65,8 +65,6 @@ private:
     // with uart2 rxd on this board.
     int32_t _spi_cs   = 21;
     int32_t _spi_dc   = 4;
-    int32_t _spi_sck  = 18;
-    int32_t _spi_mosi = 23;
     int32_t _spi_rst  = 0;
     int32_t _psb_pin  = 15;
     int32_t _en1_pin  = 14;
