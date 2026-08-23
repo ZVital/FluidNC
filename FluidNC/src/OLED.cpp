@@ -375,8 +375,8 @@ Error OLED::pollLine(char* line) {
                     consumeEncoderDetents(det);
                     _jog_last_ms = now;
                     uint8_t axisIdx = (jogAxis < 0 || jogAxis > 2) ? 0 : jogAxis;
-                    int32_t stepVal = g_jogStepMM[axisIdx] * det * mult;
-                    int32_t steps = det > 0 ? stepVal : -stepVal;
+                    int32_t stepVal = g_jogStepMM[axisIdx] * det * mult;   // already signed via det
+                    int32_t steps = stepVal;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
                                  "XYZ"[axisIdx], steps);
@@ -454,8 +454,7 @@ Error OLED::pollLine(char* line) {
                     consumeEncoderDetents(det);
                     _jog_last_ms = now;
                     uint8_t axisIdx = _enc_selected_axis < 3 ? _enc_selected_axis : 0;
-                    int32_t stepVal = g_jogStepMM[axisIdx] * det * mult;
-                    int32_t step = det > 0 ? stepVal : -stepVal;
+                    int32_t step = g_jogStepMM[axisIdx] * det * mult;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
                                  "XYZABC"[axisIdx], step);
