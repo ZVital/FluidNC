@@ -283,6 +283,10 @@ Error OLED::pollLine(char* line) {
         pollEncoder();
         BtnState btn = readButtonState();
 
+        if (btn == BtnState::SHORT_CLICK || btn == BtnState::LONG_PRESS) {
+            menuBeep(15);
+        }
+
         if (btn == BtnState::LONG_PRESS) {
             if (_state == "Alarm") {
                 // Reset alarm on long-press
@@ -522,7 +526,11 @@ void OLED::show_dro(const float* axes, bool isMpos, bool* limits) {
     // Bottom line: feed rate + spindle speed
     _oled->setFont(ArialMT_Plain_10);
     _oled->setTextAlignment(TEXT_ALIGN_LEFT);
-    snprintf(buf, sizeof(buf), "F:%.0f S:%.0f", _feed_rate, _spindle_speed);
+    if (_feed_ovr == 100) {
+        snprintf(buf, sizeof(buf), "F:%.0f S:%.0f", _feed_rate, _spindle_speed);
+    } else {
+        snprintf(buf, sizeof(buf), "F:%.0f S:%.0f Ov:%d%%", _feed_rate, _spindle_speed, _feed_ovr);
+    }
     _oled->drawString(0, 54, buf);
 }
 
@@ -672,6 +680,7 @@ void OLED::parse_status_report() {
             // feed_ovr,rapid_ovr,spindle_ovr
             float frs[3];
             parse_numbers(value, frs, 3);  // feed in [0], rapid in [1], spindle in [2]
+            _feed_ovr = (int)frs[0];
             continue;
         }
         if (tag == "A") {

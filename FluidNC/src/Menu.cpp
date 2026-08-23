@@ -14,7 +14,6 @@ int8_t encoderLine       = 0;
 int8_t encoderTopLine    = 0;
 int8_t screen_items      = 0;
 bool   menuActive        = false;
-bool   alarmBlocked      = false;
 bool   jogActive         = false;
 int32_t g_jogStepMM[3]   = { 10, 10, 1 };  // live X/Y/Z jog steps, seeded from oled config
 int     jogAxis          = 0;    // 0=X, 1=Y, 2=Z

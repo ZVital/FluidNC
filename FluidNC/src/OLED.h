@@ -48,6 +48,7 @@ private:
     float _percent;
     float _feed_rate     = 0;
     float _spindle_speed = 0;
+    int   _feed_ovr      = 100;
     char  _ip_buf[16]    = "";
     float _axes[3] = { 0, 0, 0 };
     bool  _limits[3] = { false, false, false };
