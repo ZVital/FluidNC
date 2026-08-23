@@ -359,17 +359,17 @@ Error OLED::pollLine(char* line) {
             }
             // Accumulate encoder counts across the rate-limit window instead
             // of dropping them
-            int encDelta = peekEncoderPos();
-            if (encDelta >= 2 || encDelta <= -2) {
+            int det = encoderDetents();
+            if (det != 0) {
                 uint32_t now = millis();
                 if (now - _jog_last_ms >= 60) {
                     uint32_t delta   = now - _jog_last_ms;
                     int      mult     = (delta <= 100) ? 4 : (delta <= 200) ? 2 : 1;
-                    resetEncoder();
+                    consumeEncoderDetents(det);
                     _jog_last_ms = now;
                     uint8_t axisIdx = (jogAxis < 0 || jogAxis > 2) ? 0 : jogAxis;
                     int32_t stepVal = g_jogStepMM[axisIdx] * mult;
-                    int32_t steps = encDelta > 0 ? stepVal : -stepVal;
+                    int32_t steps = det > 0 ? stepVal : -stepVal;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
                                  "XYZ"[axisIdx], steps);
@@ -406,13 +406,13 @@ Error OLED::pollLine(char* line) {
                     }
                 }
                 // Accumulate counts across the render-rate-limit window
-                int encDelta = peekEncoderPos();
-                if (encDelta != 0) {
+                int det = encoderDetents();
+                if (det != 0) {
                     uint32_t now = millis();
                     if (now - _menu_last_render > 200) {
-                        resetEncoder();
+                        consumeEncoderDetents(det);
                         _menu_last_render = now;
-                        int step = (encDelta > 0) ? 1 : -1;
+                        int step = (det > 0) ? 1 : -1;
                         encoderLine += step;
                         if (encoderLine < 0)            encoderLine = screen_items - 1;
                         if (encoderLine >= screen_items) encoderLine = 0;
@@ -433,17 +433,17 @@ Error OLED::pollLine(char* line) {
             }
             // Peek at encoder position without consuming - counts survive
             // the rate-limit window
-            int encDelta = peekEncoderPos();
-            if (encDelta >= 2 || encDelta <= -2) {
+            int det = encoderDetents();
+            if (det != 0) {
                 uint32_t now = millis();
                 if (now - _jog_last_ms >= 60) {
                     uint32_t delta   = now - _jog_last_ms;
                     int      mult     = (delta <= 100) ? 4 : (delta <= 200) ? 2 : 1;
-                    resetEncoder();
+                    consumeEncoderDetents(det);
                     _jog_last_ms = now;
                     uint8_t axisIdx = _enc_selected_axis < 3 ? _enc_selected_axis : 0;
                     int32_t stepVal = g_jogStepMM[axisIdx] * mult;
-                    int32_t step = encDelta > 0 ? stepVal : -stepVal;
+                    int32_t step = det > 0 ? stepVal : -stepVal;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
                                  "XYZABC"[axisIdx], step);

@@ -346,6 +346,16 @@ void resetEncoder() { _encPos = 0; }
 
 int peekEncoderPos() { return _encPos; }
 
+constexpr int ENC_COUNTS_PER_DETENT = 4;
+
+int encoderDetents() {
+    return _encPos / ENC_COUNTS_PER_DETENT;
+}
+
+void consumeEncoderDetents(int n) {
+    _encPos -= n * ENC_COUNTS_PER_DETENT;
+}
+
 int encoderPin1()   { return _en1Pin; }
 int encoderPin2()   { return _en2Pin; }
 int encoderBtnPin() { return _encPin; }

@@ -93,6 +93,8 @@ int      encoderPin1();
 int      encoderPin2();
 int      encoderBtnPin();
 int      peekEncoderPos();   // Returns current encoder pos WITHOUT resetting
+int      encoderDetents();            // signed WHOLE detents available (4 counts each)
+void     consumeEncoderDetents(int n); // remove n detents worth of counts
 
 // ---- Menu drawing ----
 void drawMenu(class OLEDDisplay* display);
