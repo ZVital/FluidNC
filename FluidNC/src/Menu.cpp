@@ -2,10 +2,8 @@
 #include "Menu.h"
 #include <OLEDDisplay.h>
 #include "Channel.h"
-#include "FluidPath.h"
-#include <dirent.h>
-#include "InputFile.h"
-#include "Job.h"
+#include "Protocol.h"
+#include "MotionControl.h"
 
 // ---- Global state ----
 int8_t encoderLine       = 0;
@@ -29,63 +27,77 @@ static char _pendingGcode[Channel::maxLine];
 // Edit mode apply callback — set by menu screens before entering edit mode
 void (*editApplyCB)(int) = nullptr;
 
-// ---- SD file browser state ----
-char sdSelectedFile[64]    = { 0 };
-volatile bool sdFilePending = false;
+// ---- Pending g-code queue for pollLine() injection ----
+// pollLine() may inject exactly one command per call, so multi-command
+// sequences are queued '\n'-separated and drained one line at a time.
+static char _gcodeQueue[192];
+static size_t _gcodeQueueLen = 0;
 
-static constexpr int MAX_SD_FILES = 20;
-static char sdFileNames[MAX_SD_FILES][64];
-static int  sdFileCount = 0;
-
-static void loadSdFiles() {
-    sdFileCount = 0;  // SD card menu: use WebUI for file listing
+void gcodeQueuePush(const char* cmd) {
+    if (!cmd || cmd[0] == '\0') return;
+    size_t len = strlen(cmd);
+    if (_gcodeQueueLen + len + 1 >= sizeof(_gcodeQueue)) {
+        return;  // queue full - drop rather than corrupt
+    }
+    memcpy(_gcodeQueue + _gcodeQueueLen, cmd, len);
+    _gcodeQueueLen += len;
+    _gcodeQueue[_gcodeQueueLen++] = '\n';
 }
 
-static void sdSelectAction() {
-    if (encoderLine < 0 || encoderLine >= sdFileCount) return;
-    const char* name = sdFileNames[encoderLine];
-    if (name[0] == '\0') return;
-    char c = name[0];
-    if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) return;
-    memcpy(sdSelectedFile, name, 64);
-    sdFilePending = true;
-    popScreen();
+bool gcodeQueuePop(char* out, size_t cap) {
+    if (_gcodeQueueLen == 0) return false;
+    const char* nl      = (const char*)memchr(_gcodeQueue, '\n', _gcodeQueueLen);
+    size_t      linelen = nl ? (size_t)(nl - _gcodeQueue) : _gcodeQueueLen;
+    if (linelen >= cap) linelen = cap - 1;
+    memcpy(out, _gcodeQueue, linelen);
+    out[linelen] = '\0';
+    size_t consumed = (nl ? 1 : 0) + (nl ? (size_t)(nl - _gcodeQueue) : _gcodeQueueLen);
+    memmove(_gcodeQueue, _gcodeQueue + consumed, _gcodeQueueLen - consumed);
+    _gcodeQueueLen -= consumed;
+    return true;
+}
+
+void cancelQueuedJogs() {
+    // Same path as the 0x85 real-time byte: flushes the planner jog chain and
+    // kills any parsed-but-not-yet-planned jog.
+    protocol_send_event(&motionCancelEvent);
+    mc_cancel_jog();
 }
 
 // ---- Probe Z wizard ----
-ProbeStep  probeStep          = ProbeStep::IDLE;
-char       probeGcode[64]     = { 0 };
-volatile bool probeGcodePending = false;
+ProbeStep  probeStep = ProbeStep::IDLE;
 
-static void probeAdvance() {
-    switch (probeStep) {
-        case ProbeStep::PLATE:
-            probeStep = ProbeStep::PROBING;
-            snprintf(probeGcode, sizeof(probeGcode), "G38.2 Z-60 F60\n");
-            probeGcodePending = true;
-            break;
-        case ProbeStep::PROBING:
-            probeStep = ProbeStep::SUCCESS;
-            break;
-        case ProbeStep::SUCCESS:
-            probeStep = ProbeStep::REMOVE;
-            break;
-        case ProbeStep::REMOVE:
-            probeStep = ProbeStep::LIFTING;
-            snprintf(probeGcode, sizeof(probeGcode), "G91 G0 Z5\nG90\nG92 Z0\n");
-            probeGcodePending = true;
-            break;
-        case ProbeStep::DONE:
-            probeStep = ProbeStep::IDLE;
-            popScreen();
-            break;
-        default:
-            break;
+static void probeStart() {
+    probeStep = ProbeStep::PROBING;
+    gcodeQueuePush("G38.2 Z-60 F60");
+}
+
+static void probeFinishProbing() {
+    if (machineIdle()) {
+        // Tool is still at the contact point here - zero BEFORE lifting,
+        // otherwise the datum ends up one lift-height above the surface.
+        gcodeQueuePush("G92 Z0");
+        probeStep = ProbeStep::REMOVE;
+        return;
     }
+    // Not Idle after probing means an alarm (missed contact / fault)
+    probeStep = ProbeStep::FAILED;
+}
+
+static void probeLift() {
+    gcodeQueuePush("G91 G0 Z5");
+    gcodeQueuePush("G90");
+    probeStep = ProbeStep::DONE;
+}
+
+static void probeRetry() {
+    probeStep = ProbeStep::PLATE;
 }
 
 void menuJogStop() {
     jogActive = false;
+    // Already-planned $J blocks would keep executing otherwise
+    cancelQueuedJogs();
 }
 
 int contrastValue = 43;
@@ -309,7 +321,13 @@ void action_unlock() {
 }
 
 static void action_exitMenu() {
-    menuActive = false;
+    if (jogActive) {
+        cancelQueuedJogs();
+    }
+    jogActive   = false;
+    editActive  = false;
+    editingItem = -1;
+    menuActive  = false;
     goScreen(nullptr);
     resetButtonState();
 }
@@ -385,9 +403,21 @@ void menu_main(OLEDDisplay* display) {
 }
 
 // ---- Jog submenu helpers ----
-static void jogSelectAxis0() { jogAxis = 0; jogActive = true; }
-static void jogSelectAxis1() { jogAxis = 1; jogActive = true; }
-static void jogSelectAxis2() { jogAxis = 2; jogActive = true; }
+static void jogSelectAxis0() {
+    if (!machineIdle()) return;
+    jogAxis = 0;
+    jogActive = true;
+}
+static void jogSelectAxis1() {
+    if (!machineIdle()) return;
+    jogAxis = 1;
+    jogActive = true;
+}
+static void jogSelectAxis2() {
+    if (!machineIdle()) return;
+    jogAxis = 2;
+    jogActive = true;
+}
 
 static void jogCycleStep() {
     static const int32_t steps[] = { 1, 10, 100 };
@@ -420,42 +450,39 @@ void menu_probe(OLEDDisplay* display) {
 
     static char msg[64];
     static MenuItem items[2];
+    void (*stepAction)() = nullptr;
 
     items[0] = { "< Back", (void(*)())popScreen, nullptr, true };
-    items[0].label = "< Back";
 
     switch (probeStep) {
         case ProbeStep::PLATE:
             snprintf(msg, sizeof(msg), "Place plate, click start");
-            items[1] = { msg, (void(*)())probeAdvance, nullptr, false };
+            stepAction = probeStart;
             break;
         case ProbeStep::PROBING:
-            snprintf(msg, sizeof(msg), "Click when probing done");
-            items[1] = { msg, (void(*)())probeAdvance, nullptr, false };
-            break;
-        case ProbeStep::SUCCESS:
-            snprintf(msg, sizeof(msg), "Probed! Click next");
-            items[1] = { msg, (void(*)())probeAdvance, nullptr, false };
+            snprintf(msg, sizeof(msg), "Probing... click when stopped");
+            stepAction = probeFinishProbing;
             break;
         case ProbeStep::REMOVE:
-            snprintf(msg, sizeof(msg), "Remove plate, click");
-            items[1] = { msg, (void(*)())probeAdvance, nullptr, false };
-            break;
-        case ProbeStep::LIFTING:
-            snprintf(msg, sizeof(msg), "Lifting Z...");
-            items[1] = { msg, (void(*)())probeAdvance, nullptr, false };
+            snprintf(msg, sizeof(msg), "Z=0 set. Remove plate, click");
+            stepAction = probeLift;
             break;
         case ProbeStep::DONE:
-            snprintf(msg, sizeof(msg), "Z=0 set. Click done");
-            items[1] = { msg, (void(*)())probeAdvance, nullptr, false };
+            snprintf(msg, sizeof(msg), "Click to finish");
+            stepAction = [] {
+                probeStep = ProbeStep::IDLE;
+                popScreen();
+            };
             break;
         case ProbeStep::FAILED:
-            snprintf(msg, sizeof(msg), "Probe failed");
-            items[1] = { msg, nullptr, nullptr, false };
+            snprintf(msg, sizeof(msg), "Probe failed. Click to retry");
+            stepAction = probeRetry;
             break;
         default:
             break;
     }
+
+    items[1] = { msg, (void(*)())stepAction, nullptr, false };
 
     screen_items = 2;
     currentMenuItems = &items[0];
@@ -464,52 +491,18 @@ void menu_probe(OLEDDisplay* display) {
 }
 
 void menu_sd(OLEDDisplay* display) {
-    loadSdFiles();
-
-    if (sdFileCount < 0) {
-        static const MenuItem items[] = {
-            { "< Back", (void(*)())popScreen, nullptr, true },
-        };
-        screen_items = 2;
-        currentMenuItems = items;
-        scroll_screen();
-        drawItemList(display, "SD Card");
-        display->setFont(ArialMT_Plain_10);
-        display->drawString(2, 20, "SD not mounted");
-        return;
-    }
-
-    // Build menu items: Back + up to MAX_SD_FILES file entries
-    struct SdMenuItem {
-        MenuItem item;
-        char     label[64];
+    // File browsing lives in the WebUI; the panel only offers a way back.
+    static const MenuItem items[] = {
+        { "< Back", (void(*)())popScreen, nullptr, true },
     };
-    // We use a static pool so the items persist across display refreshes
-    static SdMenuItem sdMenuBuf[MAX_SD_FILES + 1];
-    static int        cachedCount = -1;
-
-    if (sdFileCount != cachedCount) {
-        cachedCount = sdFileCount;
-        // Back button
-        sdMenuBuf[0].item = { nullptr, (void(*)())popScreen, nullptr, true };
-        snprintf(sdMenuBuf[0].label, sizeof(sdMenuBuf[0].label), "< Back");
-        sdMenuBuf[0].item.label = sdMenuBuf[0].label;
-
-        for (int i = 0; i < sdFileCount && i < MAX_SD_FILES; i++) {
-            snprintf(sdMenuBuf[i + 1].label, sizeof(sdMenuBuf[i + 1].label), "%s", sdFileNames[i]);
-            sdMenuBuf[i + 1].item.label     = sdMenuBuf[i + 1].label;
-            sdMenuBuf[i + 1].item.action    = sdSelectAction;
-            sdMenuBuf[i + 1].item.gcode     = nullptr;
-            sdMenuBuf[i + 1].item.isSubmenu = false;
-        }
-    }
-
-    screen_items = sdFileCount + 1;  // +1 for Back
-    currentMenuItems = &sdMenuBuf[0].item;
-    scroll_screen();
+    screen_items = sizeof(items) / sizeof(items[0]);
+    currentMenuItems = items;
+    encoderLine      = 0;
+    encoderTopLine   = 0;
     drawItemList(display, "SD Card");
     display->setFont(ArialMT_Plain_10);
-    display->drawString(2, 20, "Use WebUI for files");
+    display->setTextAlignment(TEXT_ALIGN_CENTER);
+    display->drawString(64, 30, "Use WebUI for files");
 }
 
 // ---- Spindle/Laser control ----
@@ -653,7 +646,7 @@ void drawMenu(OLEDDisplay* display) {
             display->setTextAlignment(TEXT_ALIGN_RIGHT);
             display->drawString(126, 0, "^");
         }
-        if (encoderTopLine + VISIBLE_LINES < screen_items) {
+        if (encoderTopLine + ITEMS_PER_PAGE < screen_items) {
             display->setTextAlignment(TEXT_ALIGN_RIGHT);
             display->drawString(126, 56, "v");
         }

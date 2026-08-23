@@ -2,8 +2,6 @@
 #include "string_util.h"
 
 #include "Machine/MachineConfig.h"
-#include "Job.h"
-#include "InputFile.h"
 #include "Report.h"
 
 #include <WiFi.h>
@@ -16,6 +14,12 @@ void OLED::show(Layout& layout, const char* msg) {
     _oled->setTextAlignment(layout._align);
     _oled->setFont(layout._font);
     _oled->drawString(layout._x, layout._y, msg);
+}
+
+static OLED* s_self = nullptr;
+
+bool machineIdle() {
+    return s_self && s_self->idle();
 }
 
 OLED::Layout OLED::bannerLayout128  = { 0, 0, 0, ArialMT_Plain_24, TEXT_ALIGN_CENTER };
@@ -104,24 +108,21 @@ void OLED::init() {
         auto* st7567 = new ST7567_SPI(_spi_cs, _spi_dc, _spi_rst, _geometry);
         _oled = st7567;
         if (!_oled->allocateBuffer()) {
-            log_error("ST7567 buffer allocation failed");
+            log_error("ST7567 init failed (check spi: section in config / out of memory)");
             _error = true;
             return;
         }
 
-        // First init attempt
+        // First init attempt; one retry for settling
         st7567->hardwareReset();
         st7567->uc1701Init();
         _oled->clear();
         _oled->display();
 
-        // Retry a couple times in case display needed more settling time
-        for (int retry = 0; retry < 3; retry++) {
-            delay(100);
-            st7567->uc1701Init();
-            _oled->clear();
-            _oled->display();
-        }
+        delay(50);
+        st7567->uc1701Init();
+        _oled->clear();
+        _oled->display();
     } else {
         // I2C mode — SSD1306
         log_info("OLED I2C address: " << to_hex(_address) << " width: " << _width << " height: " << _height);
@@ -178,7 +179,12 @@ void OLED::init() {
         rmt_driver_install(RMT_CHANNEL_0, 0, 0);
 
         uint8_t data[9];
-        for (int i = 0; i < 3; i++) { data[i*3] = rgb[0]; data[i*3+1] = rgb[1]; data[i*3+2] = rgb[2]; }
+        // WS2812/SK6812 latch bytes in GRB order
+        for (int i = 0; i < 3; i++) {
+            data[i * 3 + 0] = rgb[1];
+            data[i * 3 + 1] = rgb[0];
+            data[i * 3 + 2] = rgb[2];
+        }
         rmt_item32_t bits[72];
         int idx = 0;
         for (int i = 0; i < 9; i++) {
@@ -197,19 +203,22 @@ void OLED::init() {
     }
 
     // Set up info screen callback (field 0=IP, 1=WiFi, 2=Version)
-    static OLED* self = this;
+    s_self = this;
     infoText = [](int field) -> const char* {
+        if (!s_self) {
+            return nullptr;
+        }
         switch (field) {
             case 0:
-                if (self->_radio_addr.empty()) {
+                if (s_self->_radio_addr.empty()) {
                     IPAddress ip = WiFi.localIP();
                     if (ip) {
-                        snprintf(self->_ip_buf, sizeof(self->_ip_buf), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
-                        return self->_ip_buf;
+                        snprintf(s_self->_ip_buf, sizeof(s_self->_ip_buf), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+                        return s_self->_ip_buf;
                     }
                 }
-                return self->_radio_addr.c_str();
-            case 1: return self->_radio_info.c_str();
+                return s_self->_radio_addr.c_str();
+            case 1: return s_self->_radio_info.c_str();
             case 2: return grbl_version;
             default: return nullptr;
         }
@@ -217,10 +226,13 @@ void OLED::init() {
 
     // Set up edit apply callback
     editApplyCB = [](int value) {
-        if (editingItem == 0 && self->_spi_cs >= 0) {
-            self->_contrast = (uint8_t)value;
+        if (!s_self) {
+            return;
+        }
+        if (editingItem == 0 && s_self->_spi_cs >= 0) {
+            s_self->_contrast = (uint8_t)value;
             contrastValue = value;
-            auto* st7567 = static_cast<ST7567_SPI*>(self->_oled);
+            auto* st7567 = static_cast<ST7567_SPI*>(s_self->_oled);
             st7567->setContrast((uint8_t)value);
         }
     };
@@ -233,25 +245,19 @@ void OLED::init() {
     }
 }
 
+OLED::~OLED() {
+    if (s_self == this) {
+        s_self = nullptr;
+    }
+}
+
 Error OLED::pollLine(char* line) {
     autoReport();
 
-    // If an SD file was selected from the menu, start it
-    if (sdFilePending) {
-        sdFilePending = false;
-        Job::save();
-        try {
-            InputFile* theFile = new InputFile(SD, sdSelectedFile);
-            Job::nest(theFile, this);
-        } catch (...) {
-            Job::restore();
-        }
-    }
-
-    // If probe gcode is pending (from Probe Z wizard), inject it
-    if (probeGcodePending) {
-        probeGcodePending = false;
-        strncpy(line, probeGcode, Channel::maxLine - 1);
+    // One queued command per call (probe wizard steps, etc.)
+    char queued[Channel::maxLine];
+    if (gcodeQueuePop(queued, sizeof(queued))) {
+        strncpy(line, queued, Channel::maxLine - 1);
         line[Channel::maxLine - 1] = '\0';
         return Error::Ok;
     }
@@ -267,32 +273,35 @@ Error OLED::pollLine(char* line) {
                 line[Channel::maxLine - 1] = '\0';
                 return Error::Ok;
             }
-            menuActive = !menuActive;
-            if (menuActive) {
-                goScreen(menu_main);
+            if (editActive && menuActive) {
+                editActive   = false;
+                editingItem  = -1;
+            } else if (jogActive && menuActive) {
+                menuJogStop();
+                popScreen();
                 encoderLine    = 0;
                 encoderTopLine = 0;
-                _oled->clear();
-                drawMenu(_oled);
-                _oled->display();
-            } else {
+            } else if (menuActive) {
+                menuActive = false;
                 goScreen(nullptr);
                 resetButtonState();
                 _needs_render = true;
+                return Error::NoData;
+            } else {
+                menuActive     = true;
+                goScreen(menu_main);
+                encoderLine    = 0;
+                encoderTopLine = 0;
             }
+            _oled->clear();
+            drawMenu(_oled);
+            _oled->display();
             return Error::NoData;
         }
 
         if (editActive && menuActive) {
             if (btn == BtnState::SHORT_CLICK) {
                 menuEditStop();
-                _oled->clear();
-                drawMenu(_oled);
-                _oled->display();
-                return Error::NoData;
-            }
-            if (btn == BtnState::LONG_PRESS) {
-                editActive = false;
                 _oled->clear();
                 drawMenu(_oled);
                 _oled->display();
@@ -318,17 +327,13 @@ Error OLED::pollLine(char* line) {
                 resetEncoder();
                 return Error::NoData;
             }
-            if (btn == BtnState::LONG_PRESS) {
-                jogActive = false;
-                popScreen();
-                encoderLine = 0;
-                encoderTopLine = 0;
-                return Error::NoData;
-            }
-            int encDelta = readEncoderDelta();
+            // Accumulate encoder counts across the rate-limit window instead
+            // of dropping them
+            int encDelta = peekEncoderPos();
             if (encDelta >= 2 || encDelta <= -2) {
                 uint32_t now = millis();
                 if (now - _jog_last_ms > 150) {
+                    resetEncoder();
                     _jog_last_ms = now;
                     int32_t stepVal = _jog_step_x;
                     if (jogAxis == 1) stepVal = _jog_step_y;
@@ -370,10 +375,12 @@ Error OLED::pollLine(char* line) {
                         _oled->display();
                     }
                 }
-                int encDelta = readEncoderDelta();
+                // Accumulate counts across the render-rate-limit window
+                int encDelta = peekEncoderPos();
                 if (encDelta != 0) {
                     uint32_t now = millis();
                     if (now - _menu_last_render > 200) {
+                        resetEncoder();
                         _menu_last_render = now;
                         int step = (encDelta > 0) ? 1 : -1;
                         encoderLine += step;
@@ -389,28 +396,27 @@ Error OLED::pollLine(char* line) {
             return Error::NoData;
         }
 
-        if (btn == BtnState::SHORT_CLICK) {
-            if (_state != "Run") {
+        if (idle()) {
+            if (btn == BtnState::SHORT_CLICK) {
                 _enc_selected_axis = (_enc_selected_axis + 1) % 3;
                 _needs_render = true;
             }
-        }
-        // Peek at encoder position without consuming — accumulate across calls
-        {
+            // Peek at encoder position without consuming - counts survive
+            // the rate-limit window
             int encDelta = peekEncoderPos();
             if (encDelta >= 2 || encDelta <= -2) {
-                resetEncoder();
                 uint32_t now = millis();
                 if (now - _jog_last_ms > 150) {
+                    resetEncoder();
                     _jog_last_ms = now;
                     int step = encDelta > 0 ? _jog_step_x : -_jog_step_x;
                     if (_enc_selected_axis == 1) step = encDelta > 0 ? _jog_step_y : -_jog_step_y;
                     if (_enc_selected_axis == 2) step = encDelta > 0 ? _jog_step_z : -_jog_step_z;
                     uint8_t axisIdx = _enc_selected_axis;
-                    if (axisIdx > 3) axisIdx = 0;
+                    if (axisIdx >= MAX_N_AXIS) axisIdx = 0;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
-                                 "XYZA"[axisIdx], step);
+                                 "XYZABC"[axisIdx], step);
                         return Error::Ok;
                     }
                 }
@@ -567,7 +573,9 @@ void OLED::parse_status_report() {
     bool probe              = false;
     bool limits[MAX_N_AXIS] = { false };
 
-    float axes[MAX_N_AXIS];
+    // Short WCO-only reports have no MPos/WPos field - without the
+    // initializer, stale stack data would flash on the DRO
+    float axes[MAX_N_AXIS] = { 0 };
     bool  isMpos = false;
     _filename    = "";
     uint32_t linenum;
@@ -858,8 +866,11 @@ void OLED::parse_report() {
     }
 }
 
-// This is how the OLED driver receives channel data
+// This is how the OLED driver receives channel data.
+// write() can be called from any task that emits output; the mutex keeps the
+// _report accumulation and the parse chain mutually exclusive.
 size_t OLED::write(uint8_t data) {
+    std::lock_guard<std::mutex> lock(_reportMutex);
     char c = data;
     if (c == '\r') {
         return 1;

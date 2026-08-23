@@ -21,6 +21,14 @@ spi:
   sck_pin: gpio.18
 
 oled:
+  # Пины дисплея настраиваются (по умолчанию: spi_cs=21, dc=4, rst=0,
+  # psb=15, en1=14, en2=12, enc_btn=13) — ключи spi_cs_pin / spi_dc_pin /
+  # spi_rst_pin / psb_pin / en1_pin / en2_pin / enc_btn_pin.
+  # RGB-подсветка ВЫКЛЮЧЕНА по умолчанию. НЕ назначайте её на gpio.16:
+  # это uart2 rxd (TMC2209); OLED зажимает neo-пин в LOW после старта,
+  # и все пост-загрузочные чтения TMC ($MI и т.п.) ломаются. Для
+  # включения нужен отдельный провод на свободный пин, например:
+  #   neo_pin: 25
   neo_color: "FF500F"
   jog_step_x: 10
   jog_step_y: 10

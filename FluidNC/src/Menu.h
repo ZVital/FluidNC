@@ -9,7 +9,7 @@ typedef void (*screenFunc_t)(OLEDDisplay*);
 // ---- Constants ----
 constexpr int MAX_SCREEN_DEPTH    = 8;    // Maximum nested screen depth
 constexpr int LONG_PRESS_MS       = 800;  // ms hold for long-press
-constexpr int ENCODER_DEBOUNCE_US = 3000; // encoder debounce window in µs
+constexpr int ENCODER_DEBOUNCE_US = 1000; // encoder debounce window in µs
 constexpr int VISIBLE_LINES       = 6;    // rows on 128×64 (1 title + 5 items)
 
 // ---- Button state machine ----
@@ -50,21 +50,24 @@ extern int contrastValue;    // current contrast (synced with OLED config)
 
 // ---- Menu item dispatch ----
 const char* menuSelect();       // Returns gcode to inject (or nullptr) for current encoderLine
-void menuJogStop();             // Deactivate jog mode, return to jog submenu
+void menuJogStop();             // Deactivate jog mode, cancel queued jogs, return to jog submenu
 void menuEditStop();            // Deactivate edit mode, apply value
+
+// True while the machine state reported to the OLED is Idle (safe to start a jog)
+bool machineIdle();
 
 // Edit mode apply callback — set by menu screens before entering edit mode
 extern void (*editApplyCB)(int);
 
-// ---- SD file browser ----
-extern char sdSelectedFile[64];
-extern volatile bool sdFilePending;
-
 // ---- Probe Z wizard ----
-enum class ProbeStep : uint8_t { IDLE, PLATE, PROBING, SUCCESS, REMOVE, LIFTING, DONE, FAILED };
+enum class ProbeStep : uint8_t { IDLE, PLATE, PROBING, REMOVE, DONE, FAILED };
 extern ProbeStep probeStep;
-extern char probeGcode[64];
-extern volatile bool probeGcodePending;
+
+// ---- Pending g-code queue ----
+// Queue holds '\n'-separated commands; pollLine() injects ONE command per call.
+void gcodeQueuePush(const char* cmd);
+bool gcodeQueuePop(char* out, size_t cap);
+void cancelQueuedJogs();  // Send motion-cancel (flushes planner jog chain) + drop in-flight jog
 
 // ---- Screen stack ----
 void pushScreen(screenFunc_t screen);

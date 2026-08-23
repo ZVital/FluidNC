@@ -10,6 +10,8 @@
 #include "ST7567_SPI.h"
 #include "Menu.h"
 
+#include <mutex>
+
 typedef const uint8_t* font_t;
 
 class OLED : public Channel, public ConfigurableModule {
@@ -35,6 +37,7 @@ public:
 
 private:
     std::string _report;
+    std::mutex  _reportMutex;  // write() runs on arbitrary tasks; parse chain consumes under lock
 
     std::string _radio_info;
     std::string _radio_addr;
@@ -57,17 +60,19 @@ private:
 
     uint8_t _i2c_num = 0;
 
-    // SPI mode pins (ST7567 / Mini 12864 V3 on MKS TinyBee V1.0)
-    int _spi_cs   = 21;
-    int _spi_dc   = 4;
-    int _spi_sck  = 18;
-    int _spi_mosi = 23;
-    int _spi_rst  = 0;
-    int _psb_pin  = 15;
-    int _en1_pin  = 14;
-    int _en2_pin  = 12;
-    int _enc_pin  = 13;
-    int _neo_pin  = 16;
+    // SPI mode pins (ST7567 / Mini 12864 V3 on MKS TinyBee V1.0).
+    // All configurable; neo_pin defaults to off because gpio.16 collides
+    // with uart2 rxd on this board.
+    int32_t _spi_cs   = 21;
+    int32_t _spi_dc   = 4;
+    int32_t _spi_sck  = 18;
+    int32_t _spi_mosi = 23;
+    int32_t _spi_rst  = 0;
+    int32_t _psb_pin  = 15;
+    int32_t _en1_pin  = 14;
+    int32_t _en2_pin  = 12;
+    int32_t _enc_pin  = 13;
+    int32_t _neo_pin  = -1;
     std::string _neo_color = "FF500F";  // default rust
     Pin _buz_pin;
 
@@ -120,7 +125,7 @@ public:
     OLED& operator=(const OLED&) = delete;
     OLED& operator=(OLED&&)      = delete;
 
-    virtual ~OLED() = default;
+    virtual ~OLED();
 
     void init() override;
 
@@ -136,6 +141,8 @@ public:
 
     // Channel method overrides
     size_t write(uint8_t data) override;
+
+    bool idle() const { return _state == "Idle"; }
 
     int read(void) override { return -1; }
     int peek(void) override { return -1; }
@@ -159,7 +166,15 @@ public:
         handler.item("jog_step_z", _jog_step_z, 1, 100);
         handler.item("contrast", _contrast, 30, 50);
         handler.item("neo_color", _neo_color);
+        handler.item("neo_pin", _neo_pin);
         handler.item("flip", _flip);
         handler.item("mirror", _mirror);
+        handler.item("spi_cs_pin", _spi_cs);
+        handler.item("spi_dc_pin", _spi_dc);
+        handler.item("spi_rst_pin", _spi_rst);
+        handler.item("psb_pin", _psb_pin);
+        handler.item("en1_pin", _en1_pin);
+        handler.item("en2_pin", _en2_pin);
+        handler.item("enc_btn_pin", _enc_pin);
     }
 };
