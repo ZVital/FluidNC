@@ -4,6 +4,10 @@
 #include "Channel.h"
 #include "Protocol.h"
 #include "MotionControl.h"
+#include "FluidPath.h"
+
+#include <algorithm>
+#include <vector>
 
 // ---- Global state ----
 int8_t encoderLine       = 0;
@@ -23,6 +27,17 @@ const MenuItem* currentMenuItems = nullptr;
 
 // ---- Pending G-code for pollLine() injection ----
 static char _pendingGcode[Channel::maxLine];
+
+// ---- SD file browser state ----
+static constexpr size_t MAX_SD_LIST = 15;
+
+static std::vector<std::string> sdFiles;
+static bool sdListLoaded = false;
+static bool sdMounted    = false;
+
+static void sdListInvalidate() {
+    sdListLoaded = false;
+}
 
 // Edit mode apply callback — set by menu screens before entering edit mode
 void (*editApplyCB)(int) = nullptr;
@@ -130,6 +145,7 @@ const char* menuSelect() {
     if (item.isSubmenu && item.action) {
         if (item.action == popScreen) {
             popScreen();
+            sdListInvalidate();
         } else {
             pushScreen(reinterpret_cast<screenFunc_t>(item.action));
         }
@@ -170,6 +186,8 @@ void goScreen(screenFunc_t screen) {
     _screenDepth = 0;
     if (screen) {
         pushScreen(screen);
+    } else {
+        sdListInvalidate();
     }
 }
 
@@ -490,19 +508,92 @@ void menu_probe(OLEDDisplay* display) {
     drawItemList(display, "Probe Z");
 }
 
+static bool isGcodeName(const std::string& name) {
+    size_t dot = name.rfind('.');
+    if (dot == std::string::npos) {
+        return false;
+    }
+    std::string ext = name.substr(dot + 1);
+    for (char& c : ext) {
+        c = tolower(c);
+    }
+    return ext == "gcode" || ext == "ngc" || ext == "nc" || ext == "gc";
+}
+
+static void loadSdFileList() {
+    sdFiles.clear();
+    sdMounted = false;
+    if (!machineIdle()) {
+        return;
+    }
+    try {
+        FluidPath fpath { "/", SD };
+        for (const auto& entry : stdfs::directory_iterator(fpath)) {
+            std::error_code ec;
+            if (!entry.is_regular_file(ec) || ec) {
+                continue;
+            }
+            std::string name = entry.path().filename().string();
+            if (!isGcodeName(name)) {
+                continue;
+            }
+            sdFiles.push_back(name);
+            if (sdFiles.size() >= MAX_SD_LIST) {
+                break;
+            }
+        }
+        std::sort(sdFiles.begin(), sdFiles.end());
+        sdMounted = true;
+    } catch (...) {
+        // Card missing or inaccessible - menu_sd shows a status line
+    }
+}
+
+static void sdRunSelected() {
+    int idx = encoderLine - 1;  // row 0 is "< Back"
+    if (!machineIdle() || idx < 0 || idx >= (int)sdFiles.size()) {
+        return;
+    }
+    char cmd[96];
+    snprintf(cmd, sizeof(cmd), "$SD/Run=%s", sdFiles[idx].c_str());
+    gcodeQueuePush(cmd);
+    sdListInvalidate();
+    action_exitMenu();
+}
+
 void menu_sd(OLEDDisplay* display) {
-    // File browsing lives in the WebUI; the panel only offers a way back.
-    static const MenuItem items[] = {
-        { "< Back", (void(*)())popScreen, nullptr, true },
-    };
-    screen_items = sizeof(items) / sizeof(items[0]);
-    currentMenuItems = items;
-    encoderLine      = 0;
-    encoderTopLine   = 0;
+    bool reload = !sdListLoaded;
+    if (reload) {
+        loadSdFileList();
+        sdListLoaded = true;
+        encoderLine    = 0;
+        encoderTopLine = 0;
+    }
+
+    // MenuItem labels point into sdFiles strings, which stay unmodified
+    // while the screen is shown
+    static std::vector<MenuItem> items;
+    items.clear();
+    items.push_back({ "< Back", (void(*)())popScreen, nullptr, true });
+    for (auto& name : sdFiles) {
+        items.push_back({ name.c_str(), (void(*)())sdRunSelected, nullptr, false });
+    }
+
+    screen_items     = (int8_t)items.size();
+    currentMenuItems = items.data();
+    scroll_screen();
     drawItemList(display, "SD Card");
-    display->setFont(ArialMT_Plain_10);
-    display->setTextAlignment(TEXT_ALIGN_CENTER);
-    display->drawString(64, 30, "Use WebUI for files");
+
+    const char* status = nullptr;
+    if (!machineIdle())       status = "Stop job first";
+    else if (!sdMounted)      status = "SD not mounted";
+    else if (sdFiles.empty()) status = "No .gcode files";
+
+    if (status) {
+        display->setFont(ArialMT_Plain_10);
+        display->setTextAlignment(TEXT_ALIGN_CENTER);
+        display->drawString(64, 30, status);
+    }
 }
 
 // ---- Spindle/Laser control ----
