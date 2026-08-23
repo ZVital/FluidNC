@@ -261,6 +261,12 @@ void OLED::menuBeep(uint16_t ms) {
     _buz_pin.synchronousWrite(true);
 }
 
+void panelBeep(uint16_t ms) {
+    if (s_self) {
+        s_self->menuBeep(ms);
+    }
+}
+
 Error OLED::pollLine(char* line) {
     menuNotifyState(_state.c_str());
     autoReport();
@@ -356,11 +362,13 @@ Error OLED::pollLine(char* line) {
             int encDelta = peekEncoderPos();
             if (encDelta >= 2 || encDelta <= -2) {
                 uint32_t now = millis();
-                if (now - _jog_last_ms > 150) {
+                if (now - _jog_last_ms >= 60) {
+                    uint32_t delta   = now - _jog_last_ms;
+                    int      mult     = (delta <= 100) ? 4 : (delta <= 200) ? 2 : 1;
                     resetEncoder();
                     _jog_last_ms = now;
                     uint8_t axisIdx = (jogAxis < 0 || jogAxis > 2) ? 0 : jogAxis;
-                    int32_t stepVal = g_jogStepMM[axisIdx];
+                    int32_t stepVal = g_jogStepMM[axisIdx] * mult;
                     int32_t steps = encDelta > 0 ? stepVal : -stepVal;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
@@ -428,11 +436,13 @@ Error OLED::pollLine(char* line) {
             int encDelta = peekEncoderPos();
             if (encDelta >= 2 || encDelta <= -2) {
                 uint32_t now = millis();
-                if (now - _jog_last_ms > 150) {
+                if (now - _jog_last_ms >= 60) {
+                    uint32_t delta   = now - _jog_last_ms;
+                    int      mult     = (delta <= 100) ? 4 : (delta <= 200) ? 2 : 1;
                     resetEncoder();
                     _jog_last_ms = now;
                     uint8_t axisIdx = _enc_selected_axis < 3 ? _enc_selected_axis : 0;
-                    int32_t stepVal = g_jogStepMM[axisIdx];
+                    int32_t stepVal = g_jogStepMM[axisIdx] * mult;
                     int32_t step = encDelta > 0 ? stepVal : -stepVal;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
@@ -442,6 +452,14 @@ Error OLED::pollLine(char* line) {
                 }
             }
         }
+    }
+
+    static uint32_t s_infoLastMs = 0;
+    if (menuActive && currentScreen() == menu_info && millis() - s_infoLastMs > 1000) {
+        s_infoLastMs = millis();
+        _oled->clear();
+        drawMenu(_oled);
+        _oled->display();
     }
 
     renderDRO();

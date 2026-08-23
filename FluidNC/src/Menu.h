@@ -37,6 +37,7 @@ extern bool          jogActive;        // Jog submenu active — encoder produce
 extern int32_t       g_jogStepMM[3];   // Live X/Y/Z jog steps in mm (seeded from oled config)
 extern int           jogAxis;          // Selected jog axis: 0=X, 1=Y, 2=Z
 extern const MenuItem* currentMenuItems; // Items for current screen
+extern volatile uint32_t g_sdFailMsgUntilMs; // SD-start fail message deadline (ms, millis() base)
 
 // ---- Edit mode (contrast, speed override) ----
 extern bool   editActive;       // Encoder adjusts a value instead of navigating
@@ -55,6 +56,9 @@ void menuEditStop();            // Deactivate edit mode, apply value
 // Called from pollLine() on every status report — dispatches on state
 // transitions (probe wizard, SD watchdog, homing beep)
 void menuNotifyState(const char* state);
+
+// Cross-module beep bridge — routes to OLED::menuBeep (defined in OLED.cpp)
+void panelBeep(uint16_t ms);
 
 // True while the machine state reported to the OLED is Idle (safe to start a jog)
 bool machineIdle();

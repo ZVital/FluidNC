@@ -24,6 +24,7 @@ int    editMin           = 0;
 int    editMax           = 255;
 int    editStep          = 10;
 const MenuItem* currentMenuItems = nullptr;
+volatile uint32_t g_sdFailMsgUntilMs = 0;
 
 // ---- Pending G-code for pollLine() injection ----
 static char _pendingGcode[Channel::maxLine];
@@ -143,6 +144,33 @@ void menuEditStop() {
 // ---- State-change dispatcher (fed from OLED::pollLine) ----
 static char prev_state[16] = "";
 
+static uint32_t sdLaunchArmedMs = 0;
+
+static uint8_t  sdBeepPhase  = 0;   // 0=idle, 1..6 = on1/off/on2/off/on3/final-off
+static uint32_t sdBeepNextMs = 0;
+
+static void sdFailBeepStart() {
+    sdBeepPhase  = 1;
+    sdBeepNextMs = millis();
+}
+
+static void sdFailBeepStep() {
+    if (sdBeepPhase == 0 || millis() < sdBeepNextMs) return;
+    switch (sdBeepPhase) {
+        case 1: case 3: case 5:
+            panelBeep(60);
+            sdBeepNextMs = millis() + 60;
+            break;
+        case 2: case 4:
+            sdBeepNextMs = millis() + 80;
+            break;
+        default:
+            sdBeepPhase = 0;
+            return;
+    }
+    sdBeepPhase++;
+}
+
 void menu_probe(OLEDDisplay* display);
 
 void menuNotifyState(const char* state) {
@@ -151,13 +179,26 @@ void menuNotifyState(const char* state) {
     strncpy(cur, state, sizeof(cur) - 1);
     cur[sizeof(cur) - 1] = '\0';
 
+    // SD-launch watchdog: time-based, runs on every call
+    if (sdLaunchArmedMs) {
+        if (strcmp(cur, "Run") == 0 || strcmp(cur, "Alarm") == 0) {
+            sdLaunchArmedMs = 0;                       // started or handled
+        } else if (millis() - sdLaunchArmedMs > 2000) {
+            sdLaunchArmedMs   = 0;
+            sdFailBeepStart();
+            g_sdFailMsgUntilMs = millis() + 3000;
+        }
+    }
+
+    sdFailBeepStep();
+
     if (strcmp(cur, prev_state) == 0) {
         return;
     }
 
-    // Dispatch slots — filled by later batches:
-    //   TODO(sd-watchdog): react to SD mount/unmount
-    //   TODO(homing-beep): short beep on Homing -> Idle
+    if (strcmp(prev_state, "Home") == 0 && strcmp(cur, "Idle") == 0) {
+        panelBeep(40);
+    }
 
     if (probeStep == ProbeStep::PROBING) {
         if (strcmp(cur, "Alarm") == 0) {
@@ -614,6 +655,7 @@ static void sdRunSelected() {
     char cmd[96];
     snprintf(cmd, sizeof(cmd), "$SD/Run=%s", sdFiles[idx].c_str());
     gcodeQueuePush(cmd);
+    sdLaunchArmedMs = millis();
     sdListInvalidate();
     action_exitMenu();
 }
