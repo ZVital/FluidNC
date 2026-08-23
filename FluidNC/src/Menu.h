@@ -35,7 +35,7 @@ extern int8_t        screen_items;     // Total items in current screen
 extern bool          menuActive;       // DRO ↔ Menu mode flag
 extern bool          alarmBlocked;     // G-code actions blocked due to Alarm state
 extern bool          jogActive;        // Jog submenu active — encoder produces $J commands
-extern int32_t       jogStepMm;        // Jog step size in mm (shared with OLED)
+extern int32_t       g_jogStepMM[3];   // Live X/Y/Z jog steps in mm (seeded from oled config)
 extern int           jogAxis;          // Selected jog axis: 0=X, 1=Y, 2=Z
 extern const MenuItem* currentMenuItems; // Items for current screen
 

@@ -243,6 +243,10 @@ void OLED::init() {
         auto* st7567 = static_cast<ST7567_SPI*>(_oled);
         st7567->setContrast(_contrast);
     }
+
+    g_jogStepMM[0] = _jog_step_x;
+    g_jogStepMM[1] = _jog_step_y;
+    g_jogStepMM[2] = _jog_step_z;
 }
 
 OLED::~OLED() {
@@ -335,11 +339,9 @@ Error OLED::pollLine(char* line) {
                 if (now - _jog_last_ms > 150) {
                     resetEncoder();
                     _jog_last_ms = now;
-                    int32_t stepVal = _jog_step_x;
-                    if (jogAxis == 1) stepVal = _jog_step_y;
-                    if (jogAxis == 2) stepVal = _jog_step_z;
-                    int32_t steps = encDelta > 0 ? stepVal : -stepVal;
                     uint8_t axisIdx = (jogAxis < 0 || jogAxis > 2) ? 0 : jogAxis;
+                    int32_t stepVal = g_jogStepMM[axisIdx];
+                    int32_t steps = encDelta > 0 ? stepVal : -stepVal;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
                                  "XYZ"[axisIdx], steps);
@@ -409,11 +411,9 @@ Error OLED::pollLine(char* line) {
                 if (now - _jog_last_ms > 150) {
                     resetEncoder();
                     _jog_last_ms = now;
-                    int step = encDelta > 0 ? _jog_step_x : -_jog_step_x;
-                    if (_enc_selected_axis == 1) step = encDelta > 0 ? _jog_step_y : -_jog_step_y;
-                    if (_enc_selected_axis == 2) step = encDelta > 0 ? _jog_step_z : -_jog_step_z;
-                    uint8_t axisIdx = _enc_selected_axis;
-                    if (axisIdx >= MAX_N_AXIS) axisIdx = 0;
+                    uint8_t axisIdx = _enc_selected_axis < 3 ? _enc_selected_axis : 0;
+                    int32_t stepVal = g_jogStepMM[axisIdx];
+                    int32_t step = encDelta > 0 ? stepVal : -stepVal;
                     if (line) {
                         snprintf(line, Channel::maxLine, "$J=G91 G21 F500 %c%d\n",
                                  "XYZABC"[axisIdx], step);

@@ -16,7 +16,7 @@ int8_t screen_items      = 0;
 bool   menuActive        = false;
 bool   alarmBlocked      = false;
 bool   jogActive         = false;
-int32_t jogStepMm        = 1;
+int32_t g_jogStepMM[3]   = { 10, 10, 1 };  // live X/Y/Z jog steps, seeded from oled config
 int     jogAxis          = 0;    // 0=X, 1=Y, 2=Z
 bool   editActive        = false;
 int    editValue         = 0;
@@ -126,7 +126,14 @@ void menuEditStop() {
         }
         switch (editingItem) {
             case 0: contrastValue = editValue; break;
-            case 1: _speedValue = editValue; break;
+            case 1:
+                _speedValue = editValue;
+                {
+                    char cmd[16];
+                    snprintf(cmd, sizeof(cmd), "M220 S%d", _speedValue);
+                    gcodeQueuePush(cmd);
+                }
+                break;
         }
         editingItem = -1;
     }
@@ -437,23 +444,24 @@ static void jogSelectAxis2() {
     jogActive = true;
 }
 
-static void jogCycleStep() {
-    static const int32_t steps[] = { 1, 10, 100 };
-    static int idx = 0;
-    idx = (idx + 1) % 3;
-    jogStepMm = steps[idx];
+// Cycles the X/Y jog step; Z keeps its own fine step from config
+static void cycleJogStepXY() {
+    static const int32_t steps[] = { 1, 5, 10, 20 };
+    static uint8_t       idx     = 2;  // matches the default 10mm
+    idx            = (idx + 1) % 4;
+    g_jogStepMM[0] = g_jogStepMM[1] = steps[idx];
 }
 
 void menu_jog(OLEDDisplay* display) {
     static char stepBuf[16];
-    snprintf(stepBuf, sizeof(stepBuf), "Step: %dmm", (int)jogStepMm);
+    snprintf(stepBuf, sizeof(stepBuf), "XY Step: %dmm", (int)g_jogStepMM[0]);
 
     static const MenuItem items[] = {
         { "< Back",    (void(*)())popScreen,       nullptr, true  },
         { "X Axis",    (void(*)())jogSelectAxis0,   nullptr, false },
         { "Y Axis",    (void(*)())jogSelectAxis1,   nullptr, false },
         { "Z Axis",    (void(*)())jogSelectAxis2,   nullptr, false },
-        { stepBuf,     (void(*)())jogCycleStep,     nullptr, false },
+        { stepBuf,     (void(*)())cycleJogStepXY,   nullptr, false },
     };
     screen_items = sizeof(items) / sizeof(items[0]);
     currentMenuItems = items;
@@ -641,13 +649,6 @@ static void settingsStartSpeed() {
     editActive = true;
 }
 
-static void settingsCycleJogStep() {
-    static const int32_t steps[] = { 1, 10, 100 };
-    static int idx = 0;
-    idx = (idx + 1) % 3;
-    jogStepMm = steps[idx];
-}
-
 void menu_settings(OLEDDisplay* display) {
     if (editActive) {
         const char* title = (editingItem == 0) ? "Contrast" :
@@ -662,7 +663,7 @@ void menu_settings(OLEDDisplay* display) {
     }
 
     static char jogStepBuf[16];
-    snprintf(jogStepBuf, sizeof(jogStepBuf), "Jog Step: %dmm", (int)jogStepMm);
+    snprintf(jogStepBuf, sizeof(jogStepBuf), "Jog XY: %dmm", (int)g_jogStepMM[0]);
 
     static char contrastBuf[16];
     snprintf(contrastBuf, sizeof(contrastBuf), "Contrast: %d", contrastValue);
@@ -672,7 +673,7 @@ void menu_settings(OLEDDisplay* display) {
 
     static const MenuItem items[] = {
         { "< Back",       (void(*)())popScreen,             nullptr, true  },
-        { jogStepBuf,     (void(*)())settingsCycleJogStep,   nullptr, false },
+        { jogStepBuf,     (void(*)())cycleJogStepXY,         nullptr, false },
         { contrastBuf,    (void(*)())settingsStartContrast,   nullptr, false },
         { speedBuf,       (void(*)())settingsStartSpeed,      nullptr, false },
     };
