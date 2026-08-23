@@ -178,5 +178,6 @@ public:
         handler.item("en1_pin", _en1_pin);
         handler.item("en2_pin", _en2_pin);
         handler.item("enc_btn_pin", _enc_pin);
+        handler.item("buz_pin", _buz_pin);
     }
 };

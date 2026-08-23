@@ -9,7 +9,7 @@ typedef void (*screenFunc_t)(OLEDDisplay*);
 // ---- Constants ----
 constexpr int MAX_SCREEN_DEPTH    = 8;    // Maximum nested screen depth
 constexpr int LONG_PRESS_MS       = 800;  // ms hold for long-press
-constexpr int ENCODER_DEBOUNCE_US = 1000; // encoder debounce window in µs
+constexpr int ENCODER_DEBOUNCE_US = 3000; // encoder debounce window in µs
 constexpr int VISIBLE_LINES       = 6;    // rows on 128×64 (1 title + 5 items)
 
 // ---- Button state machine ----
