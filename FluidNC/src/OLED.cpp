@@ -280,6 +280,9 @@ Error OLED::pollLine(char* line) {
     }
 
     // One queued command per call (probe wizard steps, etc.)
+    if (!line) {
+        return Error::NoData;
+    }
     char queued[Channel::maxLine];
     if (gcodeQueuePop(queued, sizeof(queued))) {
         strncpy(line, queued, Channel::maxLine - 1);
