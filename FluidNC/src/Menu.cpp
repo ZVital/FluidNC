@@ -174,6 +174,8 @@ static void sdFailBeepStep() {
 
 void menu_probe(OLEDDisplay* display);
 void menu_job(OLEDDisplay* display);
+void menu_zero(OLEDDisplay* display);
+void menu_homing(OLEDDisplay* display);
 
 void menuNotifyState(const char* state) {
     char cur[16];
@@ -516,6 +518,8 @@ const char* (*infoText)(int field) = nullptr;  // field 0=IP, 1=WiFi SSID, 2=Ver
 static const MenuItem menu_main_items[] = {
     { "Home All",  nullptr,                    "$H\n",                             false },
     { "Job",       (void(*)())menu_job,        nullptr,                            true  },
+    { "Zero",      (void(*)())menu_zero,       nullptr,                            true  },
+    { "Homing",    (void(*)())menu_homing,     nullptr,                            true  },
     { "Jog",       (void(*)())menu_jog,        nullptr,                            true  },
     { "Probe Z",   (void(*)())menu_probe,      nullptr,                            true  },
     { "SD Card",   (void(*)())menu_sd,         nullptr,                            true  },
@@ -669,6 +673,60 @@ void menu_job(OLEDDisplay* display) {
     display->setTextAlignment(TEXT_ALIGN_CENTER);
     if (strcmp(st, "Idle") == 0)       display->drawString(64, 30, "No active job");
     else if (strcmp(st, "Alarm") == 0) display->drawString(64, 30, "Unlock first");
+}
+
+void menu_zero(OLEDDisplay* display) {
+    static MenuItem items[5];
+    int n = 0;
+
+    items[n++] = { "X=0",  [] {
+        if (!machineIdle()) return;
+        gcodeQueuePush("G92 X0");
+    }, nullptr, false };
+    items[n++] = { "Y=0",  [] {
+        if (!machineIdle()) return;
+        gcodeQueuePush("G92 Y0");
+    }, nullptr, false };
+    items[n++] = { "Z=0",  [] {
+        if (!machineIdle()) return;
+        gcodeQueuePush("G92 Z0");
+    }, nullptr, false };
+    items[n++] = { "XY=0", [] {
+        if (!machineIdle()) return;
+        gcodeQueuePush("G92 X0 Y0");
+    }, nullptr, false };
+    items[n++] = { "< Back", (void(*)())popScreen, nullptr, true };
+
+    screen_items     = (int8_t)n;
+    currentMenuItems = items;
+    if (encoderLine >= screen_items) encoderLine = screen_items - 1;
+    scroll_screen();
+    drawItemList(display, "Zero");
+}
+
+void menu_homing(OLEDDisplay* display) {
+    static MenuItem items[4];
+    int n = 0;
+
+    items[n++] = { "Home X", [] {
+        if (!machineIdle()) return;
+        gcodeQueuePush("$HX");
+    }, nullptr, false };
+    items[n++] = { "Home Y", [] {
+        if (!machineIdle()) return;
+        gcodeQueuePush("$HY");
+    }, nullptr, false };
+    items[n++] = { "Home Z", [] {
+        if (!machineIdle()) return;
+        gcodeQueuePush("$HZ");
+    }, nullptr, false };
+    items[n++] = { "< Back", (void(*)())popScreen, nullptr, true };
+
+    screen_items     = (int8_t)n;
+    currentMenuItems = items;
+    if (encoderLine >= screen_items) encoderLine = screen_items - 1;
+    scroll_screen();
+    drawItemList(display, "Homing");
 }
 
 static bool isGcodeName(const std::string& name) {
