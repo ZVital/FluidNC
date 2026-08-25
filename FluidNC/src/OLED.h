@@ -46,6 +46,9 @@ private:
     char        _stateBuf[16] = "Idle";  // null-terminated snapshot of _state for cross-task readers
     std::string _filename;
 
+    bool        _floodOn   = false;
+    bool        _mistOn    = false;
+
     float _percent;
     float _feed_rate     = 0;
     float _spindle_speed = 0;
@@ -147,6 +150,9 @@ public:
 
     // Snapshot-safe view of _state; updated under _reportMutex, readable from any task
     const char* panelState() const { return _stateBuf; }
+
+    bool floodOn() const { return _floodOn; }
+    bool mistOn()  const { return _mistOn; }
 
     void menuBeep(uint16_t ms);  // non-blocking click beep; extinguished by deadline checks in pollLine/parse_status_report
 

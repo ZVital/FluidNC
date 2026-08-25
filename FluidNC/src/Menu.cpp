@@ -176,6 +176,7 @@ void menu_probe(OLEDDisplay* display);
 void menu_job(OLEDDisplay* display);
 void menu_zero(OLEDDisplay* display);
 void menu_homing(OLEDDisplay* display);
+void menu_coolant(OLEDDisplay* display);
 
 void menuNotifyState(const char* state) {
     char cur[16];
@@ -524,6 +525,7 @@ static const MenuItem menu_main_items[] = {
     { "Probe Z",   (void(*)())menu_probe,      nullptr,                            true  },
     { "SD Card",   (void(*)())menu_sd,         nullptr,                            true  },
     { "Spindle",   (void(*)())menu_spindle,    nullptr,                            true  },
+    { "Coolant",   (void(*)())menu_coolant,    nullptr,                            true  },
     { "Settings",  (void(*)())menu_settings,   nullptr,                            true  },
     { "Info",      (void(*)())menu_info,       nullptr,                            true  },
     { "Exit",      (void(*)())action_exitMenu, nullptr,                            false },
@@ -727,6 +729,30 @@ void menu_homing(OLEDDisplay* display) {
     if (encoderLine >= screen_items) encoderLine = screen_items - 1;
     scroll_screen();
     drawItemList(display, "Homing");
+}
+
+void menu_coolant(OLEDDisplay* display) {
+    static char floodBuf[16];
+    static char mistBuf[16];
+    snprintf(floodBuf, sizeof(floodBuf), "Flood: %s", coolantFloodOn() ? "ON" : "OFF");
+    snprintf(mistBuf,  sizeof(mistBuf),  "Mist: %s",  coolantMistOn()  ? "ON" : "OFF");
+
+    static MenuItem items[3];
+    int n = 0;
+
+    items[n++] = { floodBuf, [] {
+        protocol_send_event(&accessoryOverrideEvent, AccessoryOverride::FloodToggle);
+    }, nullptr, false };
+    items[n++] = { mistBuf, [] {
+        protocol_send_event(&accessoryOverrideEvent, AccessoryOverride::MistToggle);
+    }, nullptr, false };
+    items[n++] = { "< Back", (void(*)())popScreen, nullptr, true };
+
+    screen_items     = (int8_t)n;
+    currentMenuItems = items;
+    if (encoderLine >= screen_items) encoderLine = screen_items - 1;
+    scroll_screen();
+    drawItemList(display, "Coolant");
 }
 
 static bool isGcodeName(const std::string& name) {

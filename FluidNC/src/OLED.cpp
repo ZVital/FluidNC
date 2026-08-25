@@ -28,6 +28,14 @@ const char* panelState() {
     return s_self ? s_self->panelState() : "Idle";
 }
 
+bool coolantFloodOn() {
+    return s_self && s_self->floodOn();
+}
+
+bool coolantMistOn() {
+    return s_self && s_self->mistOn();
+}
+
 OLED::Layout OLED::bannerLayout128  = { 0, 0, 0, ArialMT_Plain_24, TEXT_ALIGN_CENTER };
 OLED::Layout OLED::bannerLayout64   = { 0, 0, 0, ArialMT_Plain_16, TEXT_ALIGN_CENTER };
 OLED::Layout OLED::stateLayout      = { 0, 0, 0, ArialMT_Plain_10, TEXT_ALIGN_LEFT };
@@ -718,12 +726,17 @@ void OLED::parse_status_report() {
         if (tag == "Ov") {
             // feed_ovr,rapid_ovr,spindle_ovr
             float frs[3];
+            // A-field only arrives inside this throttled branch; reset here so stale coolant flags don't linger.
+            _floodOn = false;
+            _mistOn  = false;
             parse_numbers(value, frs, 3);  // feed in [0], rapid in [1], spindle in [2]
             _feed_ovr = (int)frs[0];
             continue;
         }
         if (tag == "A") {
             // SCFM
+            _floodOn = value.find('F') != std::string::npos;
+            _mistOn  = value.find('M') != std::string::npos;
             /* Unused.
             uint8_t spindle = 0;
             bool    flood   = false;

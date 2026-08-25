@@ -66,6 +66,10 @@ bool machineIdle();
 // Snapshot of the machine state string shown on the panel ("Idle", "Run", "Hold", "Alarm", ...)
 const char* panelState();
 
+// Coolant state as last reported by the panel status A-field
+bool coolantFloodOn();
+bool coolantMistOn();
+
 // Edit mode apply callback — set by menu screens before entering edit mode
 extern void (*editApplyCB)(int);
 
