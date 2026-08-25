@@ -43,6 +43,7 @@ private:
     std::string _radio_addr;
 
     std::string _state;
+    char        _stateBuf[16] = "Idle";  // null-terminated snapshot of _state for cross-task readers
     std::string _filename;
 
     float _percent;
@@ -143,6 +144,9 @@ public:
     size_t write(uint8_t data) override;
 
     bool idle() const { return _state == "Idle"; }
+
+    // Snapshot-safe view of _state; updated under _reportMutex, readable from any task
+    const char* panelState() const { return _stateBuf; }
 
     void menuBeep(uint16_t ms);  // non-blocking click beep; extinguished by deadline checks in pollLine/parse_status_report
 

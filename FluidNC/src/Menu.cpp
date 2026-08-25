@@ -4,6 +4,7 @@
 #include "Channel.h"
 #include "Protocol.h"
 #include "MotionControl.h"
+#include "Job.h"
 #include "FluidPath.h"
 #include "Machine/MachineConfig.h"
 
@@ -172,6 +173,7 @@ static void sdFailBeepStep() {
 }
 
 void menu_probe(OLEDDisplay* display);
+void menu_job(OLEDDisplay* display);
 
 void menuNotifyState(const char* state) {
     char cur[16];
@@ -513,6 +515,7 @@ const char* (*infoText)(int field) = nullptr;  // field 0=IP, 1=WiFi SSID, 2=Ver
 // ---- Menu screen functions ----
 static const MenuItem menu_main_items[] = {
     { "Home All",  nullptr,                    "$H\n",                             false },
+    { "Job",       (void(*)())menu_job,        nullptr,                            true  },
     { "Jog",       (void(*)())menu_jog,        nullptr,                            true  },
     { "Probe Z",   (void(*)())menu_probe,      nullptr,                            true  },
     { "SD Card",   (void(*)())menu_sd,         nullptr,                            true  },
@@ -630,6 +633,42 @@ void menu_probe(OLEDDisplay* display) {
     currentMenuItems = &items[0];
     scroll_screen();
     drawItemList(display, "Probe Z");
+}
+
+void menu_job(OLEDDisplay* display) {
+    const char* st = panelState();
+
+    static char stateBuf[24];
+    snprintf(stateBuf, sizeof(stateBuf), "State: %s", st);
+
+    static MenuItem items[3];
+    int n = 0;
+
+    if (strcmp(st, "Run") == 0) {
+        items[n++] = { "Pause", [] { protocol_send_event(&feedHoldEvent); }, nullptr, false };
+    } else if (strcmp(st, "Hold") == 0) {
+        items[n++] = { "Resume", [] { protocol_send_event(&cycleStartEvent); }, nullptr, false };
+    }
+    if (strcmp(st, "Run") == 0 || strcmp(st, "Hold") == 0) {
+        items[n++] = { "Stop", [] {
+            protocol_send_event(&feedHoldEvent);
+            Job::abort();
+            gcodeQueuePush("M5");
+        }, nullptr, false };
+    }
+
+    items[n++] = { "< Back", (void(*)())popScreen, nullptr, true };
+
+    screen_items     = (int8_t)n;
+    currentMenuItems = items;
+    if (encoderLine >= screen_items) encoderLine = screen_items - 1;
+    scroll_screen();
+    drawItemList(display, "Job");
+
+    display->setFont(ArialMT_Plain_10);
+    display->setTextAlignment(TEXT_ALIGN_CENTER);
+    if (strcmp(st, "Idle") == 0)       display->drawString(64, 30, "No active job");
+    else if (strcmp(st, "Alarm") == 0) display->drawString(64, 30, "Unlock first");
 }
 
 static bool isGcodeName(const std::string& name) {

@@ -24,6 +24,10 @@ bool machineIdle() {
     return s_self && s_self->idle();
 }
 
+const char* panelState() {
+    return s_self ? s_self->panelState() : "Idle";
+}
+
 OLED::Layout OLED::bannerLayout128  = { 0, 0, 0, ArialMT_Plain_24, TEXT_ALIGN_CENTER };
 OLED::Layout OLED::bannerLayout64   = { 0, 0, 0, ArialMT_Plain_16, TEXT_ALIGN_CENTER };
 OLED::Layout OLED::stateLayout      = { 0, 0, 0, ArialMT_Plain_10, TEXT_ALIGN_LEFT };
@@ -934,6 +938,8 @@ size_t OLED::write(uint8_t data) {
     }
     if (c == '\n') {
         parse_report();
+        strncpy(_stateBuf, _state.c_str(), sizeof(_stateBuf) - 1);
+        _stateBuf[sizeof(_stateBuf) - 1] = '\0';
         _report = "";
         return 1;
     }

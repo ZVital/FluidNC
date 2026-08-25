@@ -63,6 +63,9 @@ void panelBeep(uint16_t ms);
 // True while the machine state reported to the OLED is Idle (safe to start a jog)
 bool machineIdle();
 
+// Snapshot of the machine state string shown on the panel ("Idle", "Run", "Hold", "Alarm", ...)
+const char* panelState();
+
 // Edit mode apply callback — set by menu screens before entering edit mode
 extern void (*editApplyCB)(int);
 
